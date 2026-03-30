@@ -3,6 +3,8 @@ package io.root.patcher;
 import org.gradle.api.provider.Property;
 
 public abstract class RootIoExtension {
+    public static final String LOG_PREFIX = "[Root.io] ";
+
     /** Root.io API key (required). Set via rootio { apiKey.set(...) }. */
     public abstract Property<String> getApiKey();
 
@@ -11,9 +13,6 @@ public abstract class RootIoExtension {
 
     /** Cache TTL in hours. Default: 24. Set to 0 for no caching. */
     public abstract Property<Long> getTtlHours();
-
-    /** Enable verbose lifecycle logging. Default: false. */
-    public abstract Property<Boolean> getVerbose();
 
     /** Root.io package registry base URL. Default: <a href="https://pkg.root.io">...</a> */
     public abstract Property<String> getPkgUrl();

@@ -170,36 +170,6 @@ class RootIoPatcherPluginFunctionalTest {
             "Expected patched artifact to resolve from auto-registered pkg repo:\n" + result.getOutput());
     }
 
-    // Note: the empty-version skip (fix for HTTP 400 on BOM/Kotlin-plugin-managed deps) is
-    // enforced in RootIoPatcherPlugin.java via `if (version == null || version.isEmpty()) return`.
-    // A functional test that injects an empty version before the plugin's eachDependency hook
-    // is not feasible: all available pre-hook mechanisms (init scripts, dependencySubstitution,
-    // build-script resolutionStrategy) either fire after the plugin's rule or Gradle rejects
-    // empty version strings before they reach the hook. The fix is verified manually against
-    // real projects (e.g. kotlin-result) where the Kotlin Gradle plugin produces empty-version
-    // deps for kotlin-stdlib.
-
-    @Test
-    void verboseLogsSubstitutionDetails() throws IOException {
-        setupServerResponse(200,
-            "{\"patches\":[{" +
-            "\"package_name\":\"io.test:my-lib\",\"version\":\"1.0.0\"," +
-            "\"patch_alias\":{\"name\":\"io.root.io.test:my-lib\",\"version\":\"1.0.0-patched\"}," +
-            "\"cve_ids\":[]}]," +
-            "\"skipped\":[]}");
-        writeProjectFiles(true); // verbose=true
-
-        BuildResult result = GradleRunner.create()
-            .withProjectDir(projectDir)
-            .withPluginClasspath()
-            .withGradleVersion("9.4.1")
-            .withArguments("dependencies", "--configuration", "compileClasspath")
-            .build();
-
-        assertTrue(result.getOutput().contains("[Root.io]"),
-            "Expected [Root.io] verbose prefix in output:\n" + result.getOutput());
-    }
-
     // --- Helpers ---
 
     private void setupServerResponse(int status, String body) {
@@ -217,10 +187,6 @@ class RootIoPatcherPluginFunctionalTest {
     }
 
     private void writeProjectFiles() throws IOException {
-        writeProjectFiles(false);
-    }
-
-    private void writeProjectFiles(boolean verbose) throws IOException {
         // Local Maven repo with fake artifacts so Gradle can resolve them
         File repoDir = new File(projectDir, "local-repo");
         createFakeArtifact(repoDir, "io.test", "my-lib", "1.0.0");
@@ -243,7 +209,6 @@ class RootIoPatcherPluginFunctionalTest {
             "rootio {\n" +
             "    apiKey.set(\"test-key\")\n" +
             "    apiUrl.set(\"http://localhost:" + port + "\")\n" +
-            (verbose ? "    verbose.set(true)\n" : "") +
             "}\n" +
             // forceResolve uses strict (non-lenient) resolution — fails the build if any dep
             // throws during eachDependency. The `dependencies` task uses lenient resolution

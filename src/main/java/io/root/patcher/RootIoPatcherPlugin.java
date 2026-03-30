@@ -9,6 +9,8 @@ import org.gradle.authentication.http.BasicAuthentication;
 
 import java.util.Map;
 
+import static io.root.patcher.RootIoExtension.LOG_PREFIX;
+
 public class RootIoPatcherPlugin implements Plugin<Project> {
 
     @Override
@@ -26,7 +28,6 @@ public class RootIoPatcherPlugin implements Plugin<Project> {
         ext.getApiUrl().convention(envOrDefault("ROOTIO_API_URL", "https://api.root.io"));
         ext.getPkgUrl().convention(envOrDefault("ROOTIO_PKG_URL", "https://pkg.root.io"));
         ext.getTtlHours().convention(24L);
-        ext.getVerbose().convention(false);
         // apiKey has no hardcoded default — it must come from env or build script
         String envApiKey = System.getenv("ROOTIO_API_KEY");
         if (envApiKey != null && !envApiKey.isEmpty()) {
@@ -40,11 +41,9 @@ public class RootIoPatcherPlugin implements Plugin<Project> {
         // are fully configured by the time we read them.
         project.afterEvaluate(p -> {
             String pkgBase = ext.getPkgUrl().get().replaceAll("/$", "");
-            if (ext.getVerbose().get()) {
-                String key = ext.getApiKey().getOrElse("(not set)");
-                String masked = key.length() > 8 ? key.substring(0, 4) + "..." + key.substring(key.length() - 4) : "(too short or not set)";
-                logger.lifecycle("[Root.io] Registering repo: {}/maven (apiKey: {})", pkgBase, masked);
-            }
+            String key = ext.getApiKey().getOrElse("(not set)");
+            String masked = key.length() > 8 ? key.substring(0, 4) + "..." + key.substring(key.length() - 4) : "(too short or not set)";
+            logger.info(LOG_PREFIX + "Registering repo: {}/maven (apiKey: {})", pkgBase, masked);
             p.getRepositories().maven(repo -> {
                 repo.setName("Root.io patches");
                 repo.setUrl(pkgBase + "/maven");
@@ -75,9 +74,7 @@ public class RootIoPatcherPlugin implements Plugin<Project> {
                 // deps whose version is resolved separately. Sending an empty version to the API
                 // produces a 400.
                 if (version == null || version.isEmpty()) {
-                    if (ext.getVerbose().get()) {
-                        logger.lifecycle("[Root.io] Skipping {}:{} (no version)", req.getGroup(), req.getName());
-                    }
+                    logger.info(LOG_PREFIX + "Skipping {}:{} (no version)", req.getGroup(), req.getName());
                     return;
                 }
 
@@ -105,19 +102,10 @@ public class RootIoPatcherPlugin implements Plugin<Project> {
                     String pVersion = patched.substring(lastColon + 1);
                     details.useTarget(Map.of("group", pGroup, "name", pName, "version", pVersion));
                     details.because("Root.io security patch");
-                    if (ext.getVerbose().get()) {
-                        if (queryMs[0] >= 0) {
-                            logger.lifecycle("[Root.io] Patching {} -> {} ({}ms)", coords, patched, queryMs[0]);
-                        } else {
-                            logger.lifecycle("[Root.io] Patching {} -> {}", coords, patched);
-                        }
-                    }
-                } else if (ext.getVerbose().get()) {
-                    if (queryMs[0] >= 0) {
-                        logger.lifecycle("[Root.io] No patch for {} ({}ms)", coords, queryMs[0]);
-                    } else {
-                        logger.lifecycle("[Root.io] No patch for {}", coords);
-                    }
+                    logger.info(LOG_PREFIX + "Patching {} -> {}", coords, patched);
+                    logger.debug(LOG_PREFIX + "Patch ({}) discovery took {}ms", patched, queryMs[0]);
+                } else {
+                    logger.info(LOG_PREFIX + "No patch for {}", coords);
                 }
             });
         });

@@ -2,6 +2,8 @@ package io.root.patcher;
 
 import org.gradle.api.GradleException;
 
+import groovy.json.JsonSlurper;
+
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -9,12 +11,16 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
+import java.util.List;
+import java.util.Map;
 
 public class RootIoClient {
     // Shared across all query() calls within a build — reuses TLS connections
     private static final HttpClient HTTP_CLIENT = HttpClient.newBuilder()
         .version(HttpClient.Version.HTTP_2)
         .build();
+
+    private static final String ENDPOINT_ANALYZE_MAVEN = "/v3/analyze/maven";
 
     /**
      * Query the Root.io API for a patch for the given dependency.
@@ -32,7 +38,7 @@ public class RootIoClient {
         String version = coords.substring(lastColon + 1);
 
         String requestBody = "{\"packages\":[{\"name\":\"" + groupArtifact + "\",\"version\":\"" + version + "\"}]}";
-        String endpoint = apiUrl.replaceAll("/$", "") + "/v3/analyze/maven";
+        String endpoint = apiUrl.replaceAll("/$", "") + ENDPOINT_ANALYZE_MAVEN;
 
         String credentials = Base64.getEncoder()
             .encodeToString((apiKey + ":").getBytes(StandardCharsets.UTF_8));
@@ -65,48 +71,26 @@ public class RootIoClient {
     }
 
     // Package-private for testability
+    @SuppressWarnings("unchecked")
     static String extractPatchedCoords(String json) {
-        // Verify patches array is non-empty
-        int patchesIdx = json.indexOf("\"patches\"");
-        if (patchesIdx == -1) return null;
-        int arrayStart = json.indexOf('[', patchesIdx);
-        if (arrayStart == -1) return null;
-        int i = arrayStart + 1;
-        while (i < json.length() && Character.isWhitespace(json.charAt(i))) i++;
-        if (i >= json.length() || json.charAt(i) == ']') return null; // empty array
+        try {
+            Map<String, Object> root = (Map<String, Object>) new JsonSlurper().parseText(json);
+            List<Map<String, Object>> patches = (List<Map<String, Object>>) root.get("patches");
+            if (patches == null || patches.isEmpty()) {
+                return null;
+            }
 
-        // Find "patch_alias" key and extract its object as a substring.
-        // PatchInfo has only string fields (name, version) — no nested objects —
-        // so indexOf('}') correctly finds the end of the patch_alias object.
-        // Bounding to this substring prevents accidental matches against sibling
-        // fields like "patch.version" or the outer "version" field.
-        int aliasIdx = json.indexOf("\"patch_alias\"", patchesIdx);
-        if (aliasIdx == -1) return null;
-        int aliasOpenBrace = json.indexOf('{', aliasIdx);
-        if (aliasOpenBrace == -1) return null;
-        int aliasCloseBrace = json.indexOf('}', aliasOpenBrace);
-        if (aliasCloseBrace == -1) return null;
-        String aliasBlock = json.substring(aliasOpenBrace, aliasCloseBrace + 1);
+            Map<String, Object> patchAlias = (Map<String, Object>) patches.get(0).get("patch_alias");
+            if (patchAlias == null) {
+                return null;
+            }
 
-        // Extract "name" from the aliasBlock substring
-        int nameKeyIdx = aliasBlock.indexOf("\"name\"");
-        if (nameKeyIdx == -1) return null;
-        int nameColon = aliasBlock.indexOf(':', nameKeyIdx);
-        int nameStart = aliasBlock.indexOf('"', nameColon) + 1;
-        int nameEnd = aliasBlock.indexOf('"', nameStart);
-        if (nameStart <= 0 || nameEnd <= nameStart) return null;
-        String name = aliasBlock.substring(nameStart, nameEnd);
-
-        // Extract "version" from the aliasBlock substring
-        int versionKeyIdx = aliasBlock.indexOf("\"version\"");
-        if (versionKeyIdx == -1) return null;
-        int versionColon = aliasBlock.indexOf(':', versionKeyIdx);
-        int versionStart = aliasBlock.indexOf('"', versionColon) + 1;
-        int versionEnd = aliasBlock.indexOf('"', versionStart);
-        if (versionStart <= 0 || versionEnd <= versionStart) return null;
-        String ver = aliasBlock.substring(versionStart, versionEnd);
-
-        if (name.isEmpty() || ver.isEmpty()) return null;
-        return name + ":" + ver;
+            String name = (String) patchAlias.get("name");
+            String version = (String) patchAlias.get("version");
+            if (name == null || name.isEmpty() || version == null || version.isEmpty()) return null;
+            return name + ":" + version;
+        } catch (ClassCastException e) {
+            throw new GradleException("Root.io API returned unexpected JSON structure: " + e.getMessage(), e);
+        }
     }
 }
