@@ -1,5 +1,8 @@
 pluginManagement {
-    includeBuild("../../rootio_patcher/gradle-plugin")
+    repositories {
+        mavenLocal()
+        gradlePluginPortal()
+    }
 }
 
 rootProject.name = "rootio-multi-project-example"
