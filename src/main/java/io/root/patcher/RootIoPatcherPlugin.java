@@ -6,6 +6,7 @@ import org.gradle.api.Project;
 import org.gradle.api.artifacts.ModuleVersionSelector;
 import org.gradle.api.logging.Logger;
 import org.gradle.authentication.http.BasicAuthentication;
+import org.gradle.util.GradleVersion;
 
 import java.util.Map;
 
@@ -17,8 +18,7 @@ public class RootIoPatcherPlugin implements Plugin<Project> {
     public void apply(Project project) {
         // Fail fast if configuration cache is enabled — this plugin performs network I/O
         // during dependency resolution, which is incompatible with the configuration cache.
-        // isConfigurationCacheRequested() is available since Gradle 7.0.
-        if (project.getGradle().getStartParameter().isConfigurationCacheRequested()) {
+        if (isConfigurationCacheRequested(project)) {
             throw new GradleException(
                 "io.root.patcher is not compatible with the Gradle configuration cache " +
                 "(performs network I/O during dependency resolution).");
@@ -109,6 +109,36 @@ public class RootIoPatcherPlugin implements Plugin<Project> {
                 }
             });
         });
+    }
+
+    /**
+     * Returns true if the configuration cache was requested for this build.
+     * Uses the BuildFeatures API (Gradle 8.5+) when available; falls back to the
+     * deprecated StartParameter method on older Gradle versions (7.6–8.4).
+     * BuildFeatures cannot be imported directly here because the class doesn't exist
+     * on Gradle < 8.5, so it is accessed reflectively to avoid NoClassDefFoundError.
+     */
+    @SuppressWarnings("deprecation")
+    private static boolean isConfigurationCacheRequested(Project project) {
+        if (GradleVersion.current().compareTo(GradleVersion.version("8.5")) >= 0) {
+            try {
+                Class<?> buildFeaturesClass = Class.forName("org.gradle.api.configuration.BuildFeatures");
+                // Project's runtime type is ProjectInternal, which exposes getServices().
+                Object services = project.getClass().getMethod("getServices").invoke(project);
+                Object buildFeatures = services.getClass()
+                    .getMethod("get", Class.class).invoke(services, buildFeaturesClass);
+                Object ccFlags = buildFeatures.getClass()
+                    .getMethod("getConfigurationCache").invoke(buildFeatures);
+                Object requested = ccFlags.getClass().getMethod("getRequested").invoke(ccFlags);
+                Object result = requested.getClass()
+                    .getMethod("getOrElse", Object.class).invoke(requested, false);
+                return Boolean.TRUE.equals(result);
+            } catch (Exception e) {
+                // Reflection failed unexpectedly — treat as not requested rather than crashing.
+                return false;
+            }
+        }
+        return project.getGradle().getStartParameter().isConfigurationCacheRequested();
     }
 
     private static String envOrDefault(String name, String defaultValue) {
