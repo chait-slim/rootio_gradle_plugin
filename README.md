@@ -1,4 +1,4 @@
-# Root.io Gradle Plugin
+ # Root.io Gradle Plugin
 
 Automatically patches vulnerable Java dependencies with secure versions from the [Root.io](https://root.io) registry — no changes to your dependency declarations required.
 
@@ -7,6 +7,28 @@ When you run a Gradle build, the plugin:
 2. Queries the Root.io API to check whether a patched version exists
 3. Transparently substitutes vulnerable coordinates with patched ones
 4. Registers the Root.io package registry as a Maven repository so patched artifacts resolve
+
+## Local Development
+
+### Prerequisites
+
+- JDK 11 or later
+
+### Running tests
+
+```bash
+make test
+```
+
+### Publishing to the local Maven repository
+
+To test the plugin in another local project before publishing:
+
+```bash
+make publish-local
+```
+
+Then reference it from your local project by adding `mavenLocal()` to your `pluginManagement` repositories.
 
 ## Installation
 
