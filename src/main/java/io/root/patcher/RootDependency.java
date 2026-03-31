@@ -3,9 +3,9 @@ package io.root.patcher;
 import java.util.Map;
 
 public class RootDependency {
-    private String group;
-    private String name;
-    private String version;
+    private final String group;
+    private final String name;
+    private final String version;
 
     public RootDependency(String group, String name, String version) {
         this.group = group;
@@ -14,7 +14,11 @@ public class RootDependency {
     }
 
     public RootDependency(String coords) {
-        String[] parts = coords.split(":");
+        String[] parts = coords.split(":", 3);
+        if (parts.length != 3) {
+            throw new IllegalArgumentException("Invalid coordinates: " + coords);
+        }
+
         this.group = parts[0];
         this.name = parts[1];
         this.version = parts[2];
