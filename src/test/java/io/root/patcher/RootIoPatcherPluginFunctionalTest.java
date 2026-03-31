@@ -170,6 +170,43 @@ class RootIoPatcherPluginFunctionalTest {
             "Expected patched artifact to resolve from auto-registered pkg repo:\n" + result.getOutput());
     }
 
+    @Test
+    void worksWithConfigurationCache() throws IOException {
+        setupServerResponse(200,
+            "{\"patches\":[{" +
+            "\"package_name\":\"io.test:my-lib\",\"version\":\"1.0.0\"," +
+            "\"patch_alias\":{\"name\":\"io.root.io.test:my-lib\",\"version\":\"1.0.0-patched\"}," +
+            "\"cve_ids\":[]}]," +
+            "\"skipped\":[]}");
+        writeProjectFiles();
+
+        // First build: stores the configuration cache
+        BuildResult first = GradleRunner.create()
+            .withProjectDir(projectDir)
+            .withPluginClasspath()
+            .withGradleVersion("9.4.1")
+            .withArguments("--configuration-cache", "dependencies", "--configuration", "compileClasspath")
+            .build();
+
+        assertTrue(first.getOutput().contains("io.root.io.test:my-lib:1.0.0-patched"),
+            "Expected patched coordinates in first build output:\n" + first.getOutput());
+
+        // Second build: must reuse the stored configuration cache
+        BuildResult second = GradleRunner.create()
+            .withProjectDir(projectDir)
+            .withPluginClasspath()
+            .withGradleVersion("9.4.1")
+            .withArguments("--configuration-cache", "dependencies", "--configuration", "compileClasspath")
+            .build();
+
+        assertTrue(
+            second.getOutput().contains("Configuration cache entry reused") ||
+            second.getOutput().contains("Reusing configuration cache"),
+            "Expected second build to reuse configuration cache:\n" + second.getOutput());
+        assertTrue(second.getOutput().contains("io.root.io.test:my-lib:1.0.0-patched"),
+            "Expected patched coordinates in second build output:\n" + second.getOutput());
+    }
+
     // --- Helpers ---
 
     private void setupServerResponse(int status, String body) {

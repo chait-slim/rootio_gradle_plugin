@@ -1,12 +1,11 @@
 package io.root.patcher;
 
-import org.gradle.api.GradleException;
 import org.gradle.api.Plugin;
 import org.gradle.api.Project;
 import org.gradle.api.artifacts.ModuleVersionSelector;
 import org.gradle.api.logging.Logger;
+import org.gradle.api.provider.Provider;
 import org.gradle.authentication.http.BasicAuthentication;
-import org.gradle.util.GradleVersion;
 
 import java.util.Map;
 
@@ -16,14 +15,6 @@ public class RootIoPatcherPlugin implements Plugin<Project> {
 
     @Override
     public void apply(Project project) {
-        // Fail fast if configuration cache is enabled — this plugin performs network I/O
-        // during dependency resolution, which is incompatible with the configuration cache.
-        if (isConfigurationCacheRequested(project)) {
-            throw new GradleException(
-                "io.root.patcher is not compatible with the Gradle configuration cache " +
-                "(performs network I/O during dependency resolution).");
-        }
-
         RootIoExtension ext = project.getExtensions().create("rootio", RootIoExtension.class);
         ext.getApiUrl().convention(envOrDefault("ROOTIO_API_URL", "https://api.root.io"));
         ext.getPkgUrl().convention(envOrDefault("ROOTIO_PKG_URL", "https://pkg.root.io"));
@@ -80,18 +71,14 @@ public class RootIoPatcherPlugin implements Plugin<Project> {
 
                 String coords = req.getGroup() + ":" + req.getName() + ":" + version;
 
-                long[] queryMs = {-1};
-                String patched = DepCache.lookup(
-                    coords,
-                    project.getRootDir(), // always rootDir so subprojects share the cache
-                    ext.getTtlHours().get(),
-                    () -> {
-                        long start = System.currentTimeMillis();
-                        String result = RootIoClient.query(coords, ext.getApiUrl().get(), ext.getApiKey().get());
-                        queryMs[0] = System.currentTimeMillis() - start;
-                        return result;
-                    }
-                );
+                Provider<String> patchedProvider = project.getProviders().of(RootIoValueSource.class, spec -> {
+                    spec.getParameters().getCoords().set(coords);
+                    spec.getParameters().getApiUrl().set(ext.getApiUrl());
+                    spec.getParameters().getApiKey().set(ext.getApiKey());
+                    spec.getParameters().getRootDirPath().set(project.getRootDir().getAbsolutePath());
+                    spec.getParameters().getTtlHours().set(ext.getTtlHours());
+                });
+                String patched = patchedProvider.getOrNull();
 
                 if (patched != null) {
                     // Split "group:artifact:version" for useTarget map
@@ -103,42 +90,11 @@ public class RootIoPatcherPlugin implements Plugin<Project> {
                     details.useTarget(Map.of("group", pGroup, "name", pName, "version", pVersion));
                     details.because("Root.io security patch");
                     logger.info(LOG_PREFIX + "Patching {} -> {}", coords, patched);
-                    logger.debug(LOG_PREFIX + "Patch ({}) discovery took {}ms", patched, queryMs[0]);
                 } else {
                     logger.info(LOG_PREFIX + "No patch for {}", coords);
                 }
             });
         });
-    }
-
-    /**
-     * Returns true if the configuration cache was requested for this build.
-     * Uses the BuildFeatures API (Gradle 8.5+) when available; falls back to the
-     * deprecated StartParameter method on older Gradle versions (7.6–8.4).
-     * BuildFeatures cannot be imported directly here because the class doesn't exist
-     * on Gradle < 8.5, so it is accessed reflectively to avoid NoClassDefFoundError.
-     */
-    @SuppressWarnings("deprecation")
-    private static boolean isConfigurationCacheRequested(Project project) {
-        if (GradleVersion.current().compareTo(GradleVersion.version("8.5")) >= 0) {
-            try {
-                Class<?> buildFeaturesClass = Class.forName("org.gradle.api.configuration.BuildFeatures");
-                // Project's runtime type is ProjectInternal, which exposes getServices().
-                Object services = project.getClass().getMethod("getServices").invoke(project);
-                Object buildFeatures = services.getClass()
-                    .getMethod("get", Class.class).invoke(services, buildFeaturesClass);
-                Object ccFlags = buildFeatures.getClass()
-                    .getMethod("getConfigurationCache").invoke(buildFeatures);
-                Object requested = ccFlags.getClass().getMethod("getRequested").invoke(ccFlags);
-                Object result = requested.getClass()
-                    .getMethod("getOrElse", Object.class).invoke(requested, false);
-                return Boolean.TRUE.equals(result);
-            } catch (Exception e) {
-                // Reflection failed unexpectedly — treat as not requested rather than crashing.
-                return false;
-            }
-        }
-        return project.getGradle().getStartParameter().isConfigurationCacheRequested();
     }
 
     private static String envOrDefault(String name, String defaultValue) {
