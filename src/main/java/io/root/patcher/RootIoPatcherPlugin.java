@@ -2,6 +2,7 @@ package io.root.patcher;
 
 import org.gradle.api.Plugin;
 import org.gradle.api.Project;
+import org.gradle.api.artifacts.DependencyResolveDetails;
 import org.gradle.api.artifacts.ModuleVersionSelector;
 import org.gradle.api.logging.Logger;
 import org.gradle.api.logging.Logging;
@@ -51,7 +52,9 @@ public class RootIoPatcherPlugin implements Plugin<Project> {
         project.getConfigurations().all(config -> {
             // Only hook resolvable configurations — non-resolvable ones (e.g. `api`, `implementation`)
             // are for declaring dependencies and cannot have eachDependency applied safely.
-            if (!config.isCanBeResolved()) return;
+            if (!config.isCanBeResolved()) {
+                return;
+            }
 
             config.getResolutionStrategy().eachDependency(details -> {
                 ModuleVersionSelector req = details.getRequested();
@@ -67,30 +70,34 @@ public class RootIoPatcherPlugin implements Plugin<Project> {
 
                 String coords = req.getGroup() + ":" + req.getName() + ":" + version;
 
-                Provider<String> patchedProvider = project.getProviders().of(RootIoValueSource.class, spec -> {
-                    spec.getParameters().getCoords().set(coords);
-                    spec.getParameters().getApiUrl().set(ext.getApiUrl());
-                    spec.getParameters().getApiKey().set(ext.getApiKey());
-                    spec.getParameters().getRootDirPath().set(project.getRootDir().getAbsolutePath());
-                    spec.getParameters().getTtlHours().set(ext.getTtlHours());
-                });
-                String patched = patchedProvider.getOrNull();
-
-                if (patched != null) {
-                    // Split "group:artifact:version" for useTarget map
-                    int firstColon = patched.indexOf(':');
-                    int lastColon  = patched.lastIndexOf(':');
-                    String pGroup   = patched.substring(0, firstColon);
-                    String pName    = patched.substring(firstColon + 1, lastColon);
-                    String pVersion = patched.substring(lastColon + 1);
-                    details.useTarget(Map.of("group", pGroup, "name", pName, "version", pVersion));
-                    details.because("Root.io security patch");
-                    logger.info("Patching {} -> {}", coords, patched);
-                } else {
-                    logger.info("No patch for {}", coords);
-                }
+                resolvePatchedDependency(project, details, coords, ext);
             });
         });
+    }
+
+    private static void resolvePatchedDependency(
+            Project project,
+            DependencyResolveDetails details,
+            String coords,
+            RootIoExtension ext
+    ) {
+        Provider<String> patchedProvider = project.getProviders().of(RootIoValueSource.class, spec -> {
+            spec.getParameters().getCoords().set(coords);
+            spec.getParameters().getApiUrl().set(ext.getApiUrl());
+            spec.getParameters().getApiKey().set(ext.getApiKey());
+            spec.getParameters().getRootDirPath().set(project.getRootDir().getAbsolutePath());
+            spec.getParameters().getTtlHours().set(ext.getTtlHours());
+        });
+        String patched = patchedProvider.getOrNull();
+
+        if (patched != null) {
+            RootDependency dep = new RootDependency(patched);
+            details.useTarget(dep.toBuildTarget());
+            details.because("Root.io security patch");
+            logger.info("Patching {} -> {}", coords, patched);
+        } else {
+            logger.info("No patch for {}", coords);
+        }
     }
 
     private static String envOrDefault(String name, String defaultValue) {
