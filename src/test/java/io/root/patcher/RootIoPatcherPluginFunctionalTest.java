@@ -58,6 +58,8 @@ class RootIoPatcherPluginFunctionalTest {
 
         assertTrue(result.getOutput().contains("io.root.io.test:my-lib:1.0.0-patched"),
             "Expected patched coordinates in output:\n" + result.getOutput());
+        assertFalse(result.getOutput().contains("io.test:my-lib:1.0.0\n"),
+            "Expected original dependency to be substituted, not resolved as-is:\n" + result.getOutput());
     }
 
     @Test
