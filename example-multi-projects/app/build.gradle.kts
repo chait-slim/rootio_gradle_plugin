@@ -1,8 +1,17 @@
+plugins {
+    application
+}
+
+application {
+    mainClass = "com.example.Main"
+}
+
 dependencies {
     // Also in :lib
     implementation("ch.qos.logback:logback-classic:1.4.11")
     implementation("com.google.guava:guava:28.2-jre")
     implementation("com.fasterxml.jackson.core:jackson-core:2.18.2")
+    implementation("com.fasterxml.jackson.core:jackson-databind:2.18.2")
 
     // app-only
     implementation("ch.qos.logback:logback-core:1.2.9")

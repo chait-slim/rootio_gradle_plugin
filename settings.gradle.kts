@@ -1,1 +1,1 @@
-rootProject.name = "rootio-patcher-gradle-plugin"
+rootProject.name = "rootio-gradle-plugin"
