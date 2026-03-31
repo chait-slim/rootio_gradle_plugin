@@ -2,6 +2,7 @@ package io.root.patcher;
 
 import org.gradle.api.GradleException;
 
+import groovy.json.JsonOutput;
 import groovy.json.JsonSlurper;
 
 import java.io.IOException;
@@ -22,6 +23,13 @@ public class RootIoClient {
 
     private static final String ENDPOINT_ANALYZE_MAVEN = "/v3/analyze/maven";
 
+    private static final String REQUEST_PACKAGES = "packages";
+    private static final String REQUEST_PACKAGE_NAME = "name";
+    private static final String REQUEST_PACKAGE_VERSION = "version";
+
+    private static final String RESPONSE_PATCHES = "patches";
+    private static final String RESPONSE_PATCH_ALIAS = "patch_alias";
+
     /**
      * Query the Root.io API for a patch for the given dependency.
      *
@@ -32,23 +40,7 @@ public class RootIoClient {
      * @throws GradleException on non-200 response or network failure (fails the build)
      */
     public static String query(String coords, String apiUrl, String apiKey) {
-        // Split "group:artifact:version" — last colon separates version
-        int lastColon = coords.lastIndexOf(':');
-        String groupArtifact = coords.substring(0, lastColon);
-        String version = coords.substring(lastColon + 1);
-
-        String requestBody = "{\"packages\":[{\"name\":\"" + groupArtifact + "\",\"version\":\"" + version + "\"}]}";
-        String endpoint = apiUrl.replaceAll("/$", "") + ENDPOINT_ANALYZE_MAVEN;
-
-        String credentials = Base64.getEncoder()
-            .encodeToString((apiKey + ":").getBytes(StandardCharsets.UTF_8));
-
-        HttpRequest request = HttpRequest.newBuilder()
-            .uri(URI.create(endpoint))
-            .header("Content-Type", "application/json")
-            .header("Authorization", "Basic " + credentials)
-            .POST(HttpRequest.BodyPublishers.ofString(requestBody, StandardCharsets.UTF_8))
-            .build();
+        HttpRequest request = prepareHttpRequest(coords, apiUrl, apiKey);
 
         try {
             HttpResponse<String> response = HTTP_CLIENT.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
@@ -70,23 +62,46 @@ public class RootIoClient {
         }
     }
 
-    // Package-private for testability
+    private static HttpRequest prepareHttpRequest(String coords, String apiUrl, String apiKey) {
+        // Split "group:artifact:version" — last colon separates version
+        int lastColon = coords.lastIndexOf(':');
+        String groupArtifact = coords.substring(0, lastColon);
+        String version = coords.substring(lastColon + 1);
+
+        String requestBody = JsonOutput.toJson(Map.of(
+                REQUEST_PACKAGES,
+                List.of(Map.of(
+                        REQUEST_PACKAGE_NAME, groupArtifact,
+                        REQUEST_PACKAGE_VERSION, version))));
+        String endpoint = apiUrl.replaceAll("/$", "") + ENDPOINT_ANALYZE_MAVEN;
+
+        String credentials = Base64.getEncoder()
+            .encodeToString((apiKey + ":").getBytes(StandardCharsets.UTF_8));
+
+        return HttpRequest.newBuilder()
+            .uri(URI.create(endpoint))
+            .header("Content-Type", "application/json")
+            .header("Authorization", "Basic " + credentials)
+            .POST(HttpRequest.BodyPublishers.ofString(requestBody, StandardCharsets.UTF_8))
+            .build();
+    }
+
     @SuppressWarnings("unchecked")
-    static String extractPatchedCoords(String json) {
+    private static String extractPatchedCoords(String json) {
         try {
             Map<String, Object> root = (Map<String, Object>) new JsonSlurper().parseText(json);
-            List<Map<String, Object>> patches = (List<Map<String, Object>>) root.get("patches");
+            List<Map<String, Object>> patches = (List<Map<String, Object>>) root.get(RESPONSE_PATCHES);
             if (patches == null || patches.isEmpty()) {
                 return null;
             }
 
-            Map<String, Object> patchAlias = (Map<String, Object>) patches.get(0).get("patch_alias");
+            Map<String, Object> patchAlias = (Map<String, Object>) patches.get(0).get(RESPONSE_PATCH_ALIAS);
             if (patchAlias == null) {
                 return null;
             }
 
-            String name = (String) patchAlias.get("name");
-            String version = (String) patchAlias.get("version");
+            String name = (String) patchAlias.get(REQUEST_PACKAGE_NAME);
+            String version = (String) patchAlias.get(REQUEST_PACKAGE_VERSION);
             if (name == null || name.isEmpty() || version == null || version.isEmpty()) return null;
             return name + ":" + version;
         } catch (ClassCastException e) {

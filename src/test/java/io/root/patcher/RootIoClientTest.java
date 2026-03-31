@@ -6,10 +6,14 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import groovy.json.JsonOutput;
+
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -32,7 +36,7 @@ class RootIoClientTest {
 
     @Test
     void returnsNullWhenNoPatchAvailable() {
-        respondWith(200, "{\"patches\":[],\"skipped\":[]}");
+        respondWith(200, JsonOutput.toJson(Map.of("patches", List.of(), "skipped", List.of())));
 
         String result = RootIoClient.query("org.example:foo:1.0", "http://localhost:" + port, "test-key");
 
@@ -41,13 +45,14 @@ class RootIoClientTest {
 
     @Test
     void returnsPatchedCoordsWhenPatchAvailable() {
-        respondWith(200,
-            "{\"patches\":[{" +
-            "\"package_name\":\"org.example:foo\",\"version\":\"1.0\"," +
-            "\"patch\":{\"name\":\"io.root.org.example:foo\",\"version\":\"1.0\"}," +
-            "\"patch_alias\":{\"name\":\"io.root.org.example:foo\",\"version\":\"1.0-patched\"}," +
-            "\"cve_ids\":[]}]," +
-            "\"skipped\":[]}");
+        respondWith(200, JsonOutput.toJson(Map.of(
+            "patches", List.of(Map.of(
+                "package_name", "org.example:foo",
+                "version", "1.0",
+                "patch", Map.of("name", "io.root.org.example:foo", "version", "1.0"),
+                "patch_alias", Map.of("name", "io.root.org.example:foo", "version", "1.0-patched"),
+                "cve_ids", List.of())),
+            "skipped", List.of())));
 
         String result = RootIoClient.query("org.example:foo:1.0", "http://localhost:" + port, "test-key");
 
