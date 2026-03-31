@@ -2,7 +2,7 @@ package io.root.patcher;
 
 import com.sun.net.httpserver.HttpServer;
 import groovy.json.JsonOutput;
-import groovy.json.JsonSlurper;
+import groovy.text.SimpleTemplateEngine;
 import org.gradle.testkit.runner.BuildResult;
 import org.gradle.testkit.runner.GradleRunner;
 import org.junit.jupiter.api.AfterEach;
@@ -17,6 +17,7 @@ import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.zip.ZipOutputStream;
@@ -126,27 +127,8 @@ class RootIoPatcherPluginFunctionalTest {
 
         Files.writeString(new File(projectDir, "settings.gradle.kts").toPath(),
             "rootProject.name = \"test-project\"\n");
-        Files.writeString(new File(projectDir, "build.gradle.kts").toPath(),
-            "plugins {\n" +
-            "    java\n" +
-            "    id(\"io.root.patcher\")\n" +
-            "}\n" +
-            "repositories {\n" +
-            "    maven { url = uri(\"" + repoDir.toURI() + "\") }\n" +
-            "}\n" +
-            "dependencies {\n" +
-            "    implementation(\"io.test:my-lib:1.0.0\")\n" +
-            "}\n" +
-            "rootio {\n" +
-            "    apiKey.set(\"test-key\")\n" +
-            "    apiUrl.set(\"http://localhost:" + port + "\")\n" +
-            "    pkgUrl.set(\"" + pkgRepoDir.toURI().toString().replaceAll("/$", "") + "\")\n" +
-            "}\n" +
-            "tasks.register(\"forceResolve\") {\n" +
-            "    doLast {\n" +
-            "        configurations[\"compileClasspath\"].files\n" +
-            "    }\n" +
-            "}\n");
+        writeBuildGradleKts(repoDir, "http://localhost:" + port, "test-key",
+            pkgRepoDir.toURI().toString().replaceAll("/$", ""), true);
 
         BuildResult result = GradleRunner.create()
             .withProjectDir(projectDir)
@@ -203,22 +185,8 @@ class RootIoPatcherPluginFunctionalTest {
 
         Files.writeString(new File(projectDir, "settings.gradle.kts").toPath(),
             "rootProject.name = \"test-project\"\n");
-
-        Files.writeString(new File(projectDir, "build.gradle.kts").toPath(),
-            "plugins {\n" +
-            "    java\n" +
-            "    id(\"io.root.patcher\")\n" +
-            "}\n" +
-            "repositories {\n" +
-            "    maven { url = uri(\"" + repoDir.toURI() + "\") }\n" +
-            "}\n" +
-            "dependencies {\n" +
-            "    implementation(\"io.test:my-lib:1.0.0\")\n" +
-            "}\n" +
-            "rootio {\n" +
-            "    apiUrl.set(\"http://localhost:" + port + "\")\n" +
-            "    // Note: no apiKey.set() — key must come from .env file\n" +
-            "}\n");
+        // No apiKey.set() — key must come from .env file
+        writeBuildGradleKts(repoDir, "http://localhost:" + port, null, null, false);
 
         BuildResult result = GradleRunner.create()
             .withProjectDir(projectDir)
@@ -232,6 +200,59 @@ class RootIoPatcherPluginFunctionalTest {
     }
 
     // --- Helpers ---
+
+    private static final String BUILD_SCRIPT_TEMPLATE =
+        "plugins {\n" +
+        "    java\n" +
+        "    id(\"io.root.patcher\")\n" +
+        "}\n" +
+        "repositories {\n" +
+        "    maven { url = uri(\"${repoUri}\") }\n" +
+        "}\n" +
+        "dependencies {\n" +
+        "    implementation(\"io.test:my-lib:1.0.0\")\n" +
+        "}\n" +
+        "rootio {\n" +
+        "${rootioConfig}" +
+        "}\n" +
+        "${extraTasks}";
+
+    // Writes build.gradle.kts using SimpleTemplateEngine to bind runtime values into the template.
+    // apiKey and pkgUrl are optional (pass null to omit).
+    // forceResolve uses strict (non-lenient) resolution — fails the build if any dep throws
+    // during eachDependency. The `dependencies` task uses lenient resolution and only marks
+    // deps FAILED without failing the overall build.
+    private void writeBuildGradleKts(File repoDir, String apiUrl, String apiKey, String pkgUrl,
+            boolean includeForceResolve) throws IOException {
+        StringBuilder rootioConfig = new StringBuilder();
+        if (apiKey != null) rootioConfig.append("    apiKey.set(\"").append(apiKey).append("\")\n");
+        rootioConfig.append("    apiUrl.set(\"").append(apiUrl).append("\")\n");
+        if (pkgUrl != null) rootioConfig.append("    pkgUrl.set(\"").append(pkgUrl).append("\")\n");
+
+        String forceResolveTask = includeForceResolve
+            ? "tasks.register(\"forceResolve\") {\n" +
+              "    doLast {\n" +
+              "        configurations[\"compileClasspath\"].files\n" +
+              "    }\n" +
+              "}\n"
+            : "";
+
+        Map<String, Object> bindings = new HashMap<>(){{
+            put("repoUri", repoDir.toURI().toString());
+            put("rootioConfig", rootioConfig.toString());
+            put("extraTasks", forceResolveTask);
+        }};
+
+        try {
+            String content = new SimpleTemplateEngine()
+                .createTemplate(BUILD_SCRIPT_TEMPLATE)
+                .make(bindings)
+                .toString();
+            Files.writeString(new File(projectDir, "build.gradle.kts").toPath(), content);
+        } catch (ClassNotFoundException e) {
+            throw new RuntimeException(e);
+        }
+    }
 
     private static String patchResponseJson(String packageName, String version, String patchedName, String patchedVersion) {
         Map<String, Object> patchAlias = Map.of("name", patchedName, "version", patchedVersion);
@@ -262,37 +283,13 @@ class RootIoPatcherPluginFunctionalTest {
     }
 
     private void writeProjectFiles() throws IOException {
-        // Local Maven repo with fake artifacts so Gradle can resolve them
         File repoDir = new File(projectDir, "local-repo");
         createFakeArtifact(repoDir, "io.test", "my-lib", "1.0.0");
         createFakeArtifact(repoDir, "io.root.io.test", "my-lib", "1.0.0-patched");
 
         Files.writeString(new File(projectDir, "settings.gradle.kts").toPath(),
             "rootProject.name = \"test-project\"\n");
-
-        Files.writeString(new File(projectDir, "build.gradle.kts").toPath(),
-            "plugins {\n" +
-            "    java\n" +
-            "    id(\"io.root.patcher\")\n" +
-            "}\n" +
-            "repositories {\n" +
-            "    maven { url = uri(\"" + repoDir.toURI() + "\") }\n" +
-            "}\n" +
-            "dependencies {\n" +
-            "    implementation(\"io.test:my-lib:1.0.0\")\n" +
-            "}\n" +
-            "rootio {\n" +
-            "    apiKey.set(\"test-key\")\n" +
-            "    apiUrl.set(\"http://localhost:" + port + "\")\n" +
-            "}\n" +
-            // forceResolve uses strict (non-lenient) resolution — fails the build if any dep
-            // throws during eachDependency. The `dependencies` task uses lenient resolution
-            // and only marks deps FAILED without failing the overall build.
-            "tasks.register(\"forceResolve\") {\n" +
-            "    doLast {\n" +
-            "        configurations[\"compileClasspath\"].files\n" +
-            "    }\n" +
-            "}\n");
+        writeBuildGradleKts(repoDir, "http://localhost:" + port, "test-key", null, true);
     }
 
     /**
