@@ -4,6 +4,8 @@ import org.gradle.api.GradleException;
 
 import groovy.json.JsonOutput;
 import groovy.json.JsonSlurper;
+import org.gradle.api.logging.Logger;
+import org.gradle.api.logging.Logging;
 
 import java.io.IOException;
 import java.net.URI;
@@ -16,6 +18,8 @@ import java.util.List;
 import java.util.Map;
 
 public class RootIoClient {
+    private static final Logger logger = Logging.getLogger(RootIoClient.class);
+
     // Shared across all query() calls within a build — reuses TLS connections
     private static final HttpClient HTTP_CLIENT = HttpClient.newBuilder()
         .version(HttpClient.Version.HTTP_2)
@@ -40,6 +44,7 @@ public class RootIoClient {
      * @throws GradleException on non-200 response or network failure (fails the build)
      */
     public static String query(String coords, String apiUrl, String apiKey) {
+        logger.debug("Querying Root.io API for {} at {}...", coords, apiUrl);
         HttpRequest request = prepareHttpRequest(coords, apiUrl, apiKey);
 
         try {
@@ -48,6 +53,7 @@ public class RootIoClient {
                 throw new GradleException(
                     "Root.io API returned HTTP " + response.statusCode() + " for " + coords);
             }
+            logger.debug("Root.io API response for {}: {}", coords, response.body());
             return extractPatchedCoords(response.body());
         } catch (GradleException e) {
             // rethrow GradleException as-is, so that it's reported as a build failure
@@ -101,8 +107,17 @@ public class RootIoClient {
             }
 
             String name = (String) patchAlias.get(REQUEST_PACKAGE_NAME);
+            if (name == null || name.isEmpty()) {
+                logger.warn("Root.io API returned patch alias without name: {}", patchAlias);
+                return null;
+            }
+
             String version = (String) patchAlias.get(REQUEST_PACKAGE_VERSION);
-            if (name == null || name.isEmpty() || version == null || version.isEmpty()) return null;
+            if (version == null || version.isEmpty()) {
+                logger.warn("Root.io API returned patch alias without version: {}", patchAlias);
+                return null;
+            }
+
             return name + ":" + version;
         } catch (ClassCastException e) {
             throw new GradleException("Root.io API returned unexpected JSON structure: " + e.getMessage(), e);
