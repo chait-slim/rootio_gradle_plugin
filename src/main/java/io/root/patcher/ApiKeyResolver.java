@@ -1,5 +1,8 @@
 package io.root.patcher;
 
+import org.gradle.api.logging.Logger;
+import org.gradle.api.logging.Logging;
+
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -8,6 +11,7 @@ import java.util.function.Function;
 
 public class ApiKeyResolver {
     static final String KEY = "ROOTIO_API_KEY";
+    private static final Logger logger = Logging.getLogger(ApiKeyResolver.class);
 
     private final Function<String, String> envVarReader;
 
@@ -26,18 +30,22 @@ public class ApiKeyResolver {
      * Returns Optional.empty() if no source provides a non-empty value.
      */
     public Optional<String> resolve(File projectRootDir) {
-        String result = null;
-
-        String fromDotEnv = readDotEnv(projectRootDir);
-        if (fromDotEnv != null && !fromDotEnv.isEmpty()) result = fromDotEnv;
+        String fromEnvVar = envVarReader.apply(KEY);
+        if (fromEnvVar != null && !fromEnvVar.isEmpty()) {
+            return Optional.of(fromEnvVar);
+        }
 
         String fromSysProp = System.getProperty(KEY);
-        if (fromSysProp != null && !fromSysProp.isEmpty()) result = fromSysProp;
+        if (fromSysProp != null && !fromSysProp.isEmpty()) {
+            return Optional.of(fromSysProp);
+        }
 
-        String fromEnvVar = envVarReader.apply(KEY);
-        if (fromEnvVar != null && !fromEnvVar.isEmpty()) result = fromEnvVar;
+        String fromDotEnv = readDotEnv(projectRootDir);
+        if (fromDotEnv != null && !fromDotEnv.isEmpty()) {
+            return Optional.of(fromDotEnv);
+        }
 
-        return Optional.ofNullable(result);
+        return Optional.empty();
     }
 
     private String readDotEnv(File projectRootDir) {
@@ -56,6 +64,7 @@ public class ApiKeyResolver {
             }
         } catch (IOException e) {
             // Ignore unreadable .env files — missing key will be caught at build time
+            logger.warn("Failed to read .env file: " + e.getMessage(), e);
         }
         return null;
     }
