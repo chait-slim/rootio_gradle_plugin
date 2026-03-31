@@ -3,8 +3,6 @@ package io.root.patcher;
 import org.gradle.api.provider.Property;
 
 public abstract class RootIoExtension {
-    public static final String LOG_PREFIX = "[Root.io] ";
-
     /** Root.io API key (required). Set via rootio { apiKey.set(...) }. */
     public abstract Property<String> getApiKey();
 

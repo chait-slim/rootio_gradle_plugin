@@ -4,14 +4,14 @@ import org.gradle.api.Plugin;
 import org.gradle.api.Project;
 import org.gradle.api.artifacts.ModuleVersionSelector;
 import org.gradle.api.logging.Logger;
+import org.gradle.api.logging.Logging;
 import org.gradle.api.provider.Provider;
 import org.gradle.authentication.http.BasicAuthentication;
 
 import java.util.Map;
 
-import static io.root.patcher.RootIoExtension.LOG_PREFIX;
-
 public class RootIoPatcherPlugin implements Plugin<Project> {
+    private static final Logger logger = Logging.getLogger(RootIoPatcherPlugin.class);
 
     @Override
     public void apply(Project project) {
@@ -23,8 +23,6 @@ public class RootIoPatcherPlugin implements Plugin<Project> {
         new ApiKeyResolver().resolve(project.getRootDir())
             .ifPresent(key -> ext.getApiKey().convention(key));
 
-        Logger logger = project.getLogger();
-
         // Auto-register the Root.io patches Maven repository so patched artifacts resolve
         // without users needing to add it manually. Done in afterEvaluate so apiKey/pkgUrl
         // are fully configured by the time we read them.
@@ -32,7 +30,7 @@ public class RootIoPatcherPlugin implements Plugin<Project> {
             String pkgBase = ext.getPkgUrl().get().replaceAll("/$", "");
             String key = ext.getApiKey().getOrElse("(not set)");
             String masked = key.length() > 8 ? key.substring(0, 4) + "..." + key.substring(key.length() - 4) : "(too short or not set)";
-            logger.info(LOG_PREFIX + "Registering repo: {}/maven (apiKey: {})", pkgBase, masked);
+            logger.info("Registering repo: {}/maven (apiKey: {})", pkgBase, masked);
             p.getRepositories().maven(repo -> {
                 repo.setName("Root.io patches");
                 repo.setUrl(pkgBase + "/maven");
@@ -63,7 +61,7 @@ public class RootIoPatcherPlugin implements Plugin<Project> {
                 // deps whose version is resolved separately. Sending an empty version to the API
                 // produces a 400.
                 if (version == null || version.isEmpty()) {
-                    logger.info(LOG_PREFIX + "Skipping {}:{} (no version)", req.getGroup(), req.getName());
+                    logger.info("Skipping {}:{} (no version)", req.getGroup(), req.getName());
                     return;
                 }
 
@@ -87,9 +85,9 @@ public class RootIoPatcherPlugin implements Plugin<Project> {
                     String pVersion = patched.substring(lastColon + 1);
                     details.useTarget(Map.of("group", pGroup, "name", pName, "version", pVersion));
                     details.because("Root.io security patch");
-                    logger.info(LOG_PREFIX + "Patching {} -> {}", coords, patched);
+                    logger.info("Patching {} -> {}", coords, patched);
                 } else {
-                    logger.info(LOG_PREFIX + "No patch for {}", coords);
+                    logger.info("No patch for {}", coords);
                 }
             });
         });
