@@ -34,7 +34,3 @@ dependencies {
     implementation("net.jpountz.lz4:lz4:1.3.0")
     implementation("org.apache.avro:avro:1.9.2")
 }
-
-rootio {
-    apiKey.set(providers.environmentVariable("ROOTIO_API_KEY").orElse("test-api-key"))
-}

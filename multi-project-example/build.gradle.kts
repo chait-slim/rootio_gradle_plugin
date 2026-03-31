@@ -18,8 +18,4 @@ subprojects {
         mavenLocal()
         mavenCentral()
     }
-
-    configure<io.root.patcher.RootIoExtension> {
-        apiKey.set(providers.environmentVariable("ROOTIO_API_KEY").orElse("test-api-key"))
-    }
 }

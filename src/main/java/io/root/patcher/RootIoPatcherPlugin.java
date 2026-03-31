@@ -19,11 +19,9 @@ public class RootIoPatcherPlugin implements Plugin<Project> {
         ext.getApiUrl().convention(envOrDefault("ROOTIO_API_URL", "https://api.root.io"));
         ext.getPkgUrl().convention(envOrDefault("ROOTIO_PKG_URL", "https://pkg.root.io"));
         ext.getTtlHours().convention(24L);
-        // apiKey has no hardcoded default — it must come from env or build script
-        String envApiKey = System.getenv("ROOTIO_API_KEY");
-        if (envApiKey != null && !envApiKey.isEmpty()) {
-            ext.getApiKey().convention(envApiKey);
-        }
+        // apiKey resolved automatically from .env, systemProp, or env var
+        new ApiKeyResolver().resolve(project.getRootDir())
+            .ifPresent(key -> ext.getApiKey().convention(key));
 
         Logger logger = project.getLogger();
 

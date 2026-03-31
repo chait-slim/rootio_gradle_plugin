@@ -207,6 +207,46 @@ class RootIoPatcherPluginFunctionalTest {
             "Expected patched coordinates in second build output:\n" + second.getOutput());
     }
 
+    @Test
+    void resolvesApiKeyFromDotEnvFile() throws IOException {
+        setupServerResponse(200, "{\"patches\":[],\"skipped\":[]}");
+
+        File repoDir = new File(projectDir, "local-repo");
+        createFakeArtifact(repoDir, "io.test", "my-lib", "1.0.0");
+
+        // Write a .env file with the API key — no apiKey.set() in the build script
+        Files.writeString(new File(projectDir, ".env").toPath(), "ROOTIO_API_KEY=test-key\n");
+
+        Files.writeString(new File(projectDir, "settings.gradle.kts").toPath(),
+            "rootProject.name = \"test-project\"\n");
+
+        Files.writeString(new File(projectDir, "build.gradle.kts").toPath(),
+            "plugins {\n" +
+            "    java\n" +
+            "    id(\"io.root.patcher\")\n" +
+            "}\n" +
+            "repositories {\n" +
+            "    maven { url = uri(\"" + repoDir.toURI() + "\") }\n" +
+            "}\n" +
+            "dependencies {\n" +
+            "    implementation(\"io.test:my-lib:1.0.0\")\n" +
+            "}\n" +
+            "rootio {\n" +
+            "    apiUrl.set(\"http://localhost:" + port + "\")\n" +
+            "    // Note: no apiKey.set() — key must come from .env file\n" +
+            "}\n");
+
+        BuildResult result = GradleRunner.create()
+            .withProjectDir(projectDir)
+            .withPluginClasspath()
+            .withGradleVersion("9.4.1")
+            .withArguments("dependencies", "--configuration", "compileClasspath")
+            .build();
+
+        assertTrue(result.getOutput().contains("BUILD SUCCESSFUL"),
+            "Expected build to succeed when API key is resolved from .env file:\n" + result.getOutput());
+    }
+
     // --- Helpers ---
 
     private void setupServerResponse(int status, String body) {
