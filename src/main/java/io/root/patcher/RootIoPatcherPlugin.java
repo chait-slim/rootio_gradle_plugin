@@ -18,6 +18,7 @@ public class RootIoPatcherPlugin implements Plugin<Project> {
         extension.getApiUrl().convention(envOrDefault("ROOTIO_API_URL", "https://api.root.io"));
         extension.getPkgUrl().convention(envOrDefault("ROOTIO_PKG_URL", "https://pkg.root.io"));
         extension.getTtlHours().convention(24L);
+        extension.getAllowInsecurePkgRepo().convention(false);
         // apiKey resolved automatically from .env, systemProp, or env var
         new ApiKeyResolver().resolve(project.getRootDir())
             .ifPresent(key -> extension.getApiKey().convention(key));
@@ -57,6 +58,9 @@ public class RootIoPatcherPlugin implements Plugin<Project> {
                     creds.setPassword(extension.getApiKey().get());
                 });
                 repo.authentication(auth -> auth.create("basic", BasicAuthentication.class));
+            }
+            if (extension.getAllowInsecurePkgRepo().get()) {
+                repo.setAllowInsecureProtocol(true);
             }
         });
     }

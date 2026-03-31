@@ -20,6 +20,7 @@ import java.nio.file.Files;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.zip.ZipOutputStream;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -115,32 +116,45 @@ class RootIoPatcherPluginFunctionalTest {
 
     @Test
     void resolvesFromAutoRegisteredPkgRepo() throws IOException {
-        // The plugin must auto-register {pkgUrl}/maven-patches so patched artifacts resolve
+        // The plugin must auto-register {pkgUrl}/maven so patched artifacts resolve
         // without the user needing to add the repository manually.
         setupServerResponse(200, patchResponseJson("io.test:my-lib", "1.0.0", "io.root.io.test:my-lib", "1.0.0-patched"));
 
-        // Original artifact in the project's own repo; patched artifact ONLY in the pkg repo.
-        // The build script does NOT declare the pkg repo — the plugin must add it automatically.
         File repoDir = new File(projectDir, "local-repo");
         File pkgRepoDir = new File(projectDir, "pkg-repo");
         createFakeArtifact(repoDir, "io.test", "my-lib", "1.0.0");
         // Plugin appends /maven to pkgUrl, so the artifact must live in that subdirectory.
         createFakeArtifact(new File(pkgRepoDir, "maven"), "io.root.io.test", "my-lib", "1.0.0-patched");
 
-        Files.writeString(new File(projectDir, "settings.gradle.kts").toPath(),
-            "rootProject.name = \"test-project\"\n");
-        writeBuildGradleKts(repoDir, "http://localhost:" + port, "test-key",
-            pkgRepoDir.toURI().toString().replaceAll("/$", ""), true);
+        // Both repos served over HTTP so we can assert exactly which one served each artifact.
+        try (FileServingRepo originalRepo = new FileServingRepo(repoDir);
+             FileServingRepo pkgRepo = new FileServingRepo(pkgRepoDir)) {
 
-        BuildResult result = GradleRunner.create()
-            .withProjectDir(projectDir)
-            .withPluginClasspath()
-            .withGradleVersion("9.4.1")
-            .withArguments("forceResolve")
-            .build();
+            Files.writeString(new File(projectDir, "settings.gradle.kts").toPath(),
+                "rootProject.name = \"test-project\"\n");
+            writeBuildGradleKts(originalRepo.url(), "http://localhost:" + port, "test-key",
+                pkgRepo.url(), true);
 
-        assertTrue(result.getOutput().contains("BUILD SUCCESSFUL"),
-            "Expected patched artifact to resolve from auto-registered pkg repo:\n" + result.getOutput());
+            // Use a per-test Gradle user home so the module cache is fresh and Gradle
+            // must contact our HTTP servers rather than using a cross-test cached artifact.
+            Map<String, String> env = new HashMap<>(System.getenv());
+            env.put("GRADLE_USER_HOME", new File(projectDir, ".gradle-home").getAbsolutePath());
+
+            BuildResult result = GradleRunner.create()
+                .withProjectDir(projectDir)
+                .withPluginClasspath()
+                .withGradleVersion("9.4.1")
+                .withEnvironment(env)
+                .withArguments("forceResolve")
+                .build();
+
+            assertTrue(result.getOutput().contains("BUILD SUCCESSFUL"),
+                "Expected patched artifact to resolve from auto-registered pkg repo:\n" + result.getOutput());
+            assertTrue(pkgRepo.served("io.root.io.test"),
+                "Expected pkg repo to serve the patched artifact");
+            assertFalse(originalRepo.served("io.root.io.test"),
+                "Expected original repo NOT to serve the patched artifact");
+        }
     }
 
     @Test
@@ -188,7 +202,7 @@ class RootIoPatcherPluginFunctionalTest {
         Files.writeString(new File(projectDir, "settings.gradle.kts").toPath(),
             "rootProject.name = \"test-project\"\n");
         // No apiKey.set() — key must come from .env file
-        writeBuildGradleKts(repoDir, "http://localhost:" + port, null, null, false);
+        writeBuildGradleKts(repoDir.toURI().toString(), "http://localhost:" + port, null, null, false);
 
         BuildResult result = GradleRunner.create()
             .withProjectDir(projectDir)
@@ -209,7 +223,10 @@ class RootIoPatcherPluginFunctionalTest {
         "    id(\"io.root.patcher\")\n" +
         "}\n" +
         "repositories {\n" +
-        "    maven { url = uri(\"${repoUri}\") }\n" +
+        "    maven {\n" +
+        "        url = uri(\"${repoUri}\")\n" +
+        "${allowInsecureRepoLine}" +
+        "    }\n" +
         "}\n" +
         "dependencies {\n" +
         "    implementation(\"io.test:my-lib:1.0.0\")\n" +
@@ -224,12 +241,17 @@ class RootIoPatcherPluginFunctionalTest {
     // forceResolve uses strict (non-lenient) resolution — fails the build if any dep throws
     // during eachDependency. The `dependencies` task uses lenient resolution and only marks
     // deps FAILED without failing the overall build.
-    private void writeBuildGradleKts(File repoDir, String apiUrl, String apiKey, String pkgUrl,
+    private void writeBuildGradleKts(String repoUri, String apiUrl, String apiKey, String pkgUrl,
             boolean includeForceResolve) throws IOException {
         StringBuilder rootioConfig = new StringBuilder();
         if (apiKey != null) rootioConfig.append("    apiKey.set(\"").append(apiKey).append("\")\n");
         rootioConfig.append("    apiUrl.set(\"").append(apiUrl).append("\")\n");
-        if (pkgUrl != null) rootioConfig.append("    pkgUrl.set(\"").append(pkgUrl).append("\")\n");
+        if (pkgUrl != null) {
+            rootioConfig.append("    pkgUrl.set(\"").append(pkgUrl).append("\")\n");
+            if (pkgUrl.startsWith("http://")) {
+                rootioConfig.append("    allowInsecurePkgRepo.set(true)\n");
+            }
+        }
 
         String forceResolveTask = includeForceResolve
             ? "tasks.register(\"forceResolve\") {\n" +
@@ -239,11 +261,11 @@ class RootIoPatcherPluginFunctionalTest {
               "}\n"
             : "";
 
-        Map<String, Object> bindings = new HashMap<>(){{
-            put("repoUri", repoDir.toURI().toString());
-            put("rootioConfig", rootioConfig.toString());
-            put("extraTasks", forceResolveTask);
-        }};
+        Map<String, Object> bindings = new HashMap<>();
+        bindings.put("repoUri", repoUri);
+        bindings.put("allowInsecureRepoLine", repoUri.startsWith("http://") ? "        isAllowInsecureProtocol = true\n" : "");
+        bindings.put("rootioConfig", rootioConfig.toString());
+        bindings.put("extraTasks", forceResolveTask);
 
         try {
             String content = new SimpleTemplateEngine()
@@ -291,7 +313,7 @@ class RootIoPatcherPluginFunctionalTest {
 
         Files.writeString(new File(projectDir, "settings.gradle.kts").toPath(),
             "rootProject.name = \"test-project\"\n");
-        writeBuildGradleKts(repoDir, "http://localhost:" + port, "test-key", null, true);
+        writeBuildGradleKts(repoDir.toURI().toString(), "http://localhost:" + port, "test-key", null, true);
     }
 
     /**
@@ -314,6 +336,56 @@ class RootIoPatcherPluginFunctionalTest {
         try (ZipOutputStream zos = new ZipOutputStream(
                 new FileOutputStream(new File(dir, artifact + "-" + version + ".jar")))) {
             // intentionally empty
+        }
+    }
+
+    /**
+     * An HTTP server that serves files from a local directory and tracks which paths
+     * were successfully served. Use {@link #served(String)} to assert routing behaviour.
+     */
+    private static class FileServingRepo implements AutoCloseable {
+        private final HttpServer server;
+        private final List<String> servedPaths = new CopyOnWriteArrayList<>();
+
+        FileServingRepo(File rootDir) throws IOException {
+            server = HttpServer.create(new InetSocketAddress(0), 0);
+            server.createContext("/", exchange -> {
+                // Strip the leading "/" — new File(root, "/abs") ignores root entirely on Unix
+                String relativePath = exchange.getRequestURI().getPath().replaceFirst("^/", "");
+                File file = new File(rootDir, relativePath);
+                if (file.exists() && file.isFile()) {
+                    servedPaths.add(exchange.getRequestURI().getPath());
+                    byte[] bytes = Files.readAllBytes(file.toPath());
+                    exchange.sendResponseHeaders(200, bytes.length);
+                    try (OutputStream os = exchange.getResponseBody()) {
+                        os.write(bytes);
+                    }
+                } else {
+                    exchange.sendResponseHeaders(404, -1);
+                    exchange.getResponseBody().close();
+                }
+            });
+            server.start();
+        }
+
+        String url() {
+            return "http://localhost:" + server.getAddress().getPort();
+        }
+
+        /**
+         * Returns true if any successfully served path contains {@code groupOrPath}.
+         * Accepts either dot-separated group coordinates ("io.root.io.test") or
+         * slash-separated path form ("io/root/io/test") — dots are normalised to slashes
+         * before matching since Maven repository URLs always use slash-separated paths.
+         */
+        boolean served(String groupOrPath) {
+            String pathFragment = groupOrPath.replace('.', '/');
+            return servedPaths.stream().anyMatch(p -> p.contains(pathFragment));
+        }
+
+        @Override
+        public void close() {
+            server.stop(0);
         }
     }
 }

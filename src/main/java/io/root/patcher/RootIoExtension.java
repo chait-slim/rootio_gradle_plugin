@@ -14,4 +14,7 @@ public abstract class RootIoExtension {
 
     /** Root.io package registry base URL. Default: <a href="https://pkg.root.io">...</a> */
     public abstract Property<String> getPkgUrl();
+
+    /** Allow plain HTTP for the pkg repository. Default: false. Enable only for local/test setups. */
+    public abstract Property<Boolean> getAllowInsecurePkgRepo();
 }
