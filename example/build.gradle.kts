@@ -36,5 +36,4 @@ dependencies {
 
 rootio {
     apiKey.set(providers.environmentVariable("ROOTIO_API_KEY").orElse("test-api-key"))
-    verbose.set(true)
 }
