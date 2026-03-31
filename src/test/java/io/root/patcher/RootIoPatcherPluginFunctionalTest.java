@@ -1,6 +1,8 @@
 package io.root.patcher;
 
 import com.sun.net.httpserver.HttpServer;
+import groovy.json.JsonOutput;
+import groovy.json.JsonSlurper;
 import org.gradle.testkit.runner.BuildResult;
 import org.gradle.testkit.runner.GradleRunner;
 import org.junit.jupiter.api.AfterEach;
@@ -15,6 +17,8 @@ import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.util.List;
+import java.util.Map;
 import java.util.zip.ZipOutputStream;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -41,12 +45,7 @@ class RootIoPatcherPluginFunctionalTest {
 
     @Test
     void substitutesDepWhenPatchAvailable() throws IOException {
-        setupServerResponse(200,
-            "{\"patches\":[{" +
-            "\"package_name\":\"io.test:my-lib\",\"version\":\"1.0.0\"," +
-            "\"patch_alias\":{\"name\":\"io.root.io.test:my-lib\",\"version\":\"1.0.0-patched\"}," +
-            "\"cve_ids\":[]}]," +
-            "\"skipped\":[]}");
+        setupServerResponse(200, patchResponseJson("io.test:my-lib", "1.0.0", "io.root.io.test:my-lib", "1.0.0-patched"));
         writeProjectFiles();
 
         BuildResult result = GradleRunner.create()
@@ -62,7 +61,7 @@ class RootIoPatcherPluginFunctionalTest {
 
     @Test
     void doesNotSubstituteWhenNoPatchAvailable() throws IOException {
-        setupServerResponse(200, "{\"patches\":[],\"skipped\":[]}");
+        setupServerResponse(200, emptyPatchResponseJson());
         writeProjectFiles();
 
         BuildResult result = GradleRunner.create()
@@ -80,12 +79,7 @@ class RootIoPatcherPluginFunctionalTest {
 
     @Test
     void reasonStringAppearsInDependencyInsight() throws IOException {
-        setupServerResponse(200,
-            "{\"patches\":[{" +
-            "\"package_name\":\"io.test:my-lib\",\"version\":\"1.0.0\"," +
-            "\"patch_alias\":{\"name\":\"io.root.io.test:my-lib\",\"version\":\"1.0.0-patched\"}," +
-            "\"cve_ids\":[]}]," +
-            "\"skipped\":[]}");
+        setupServerResponse(200, patchResponseJson("io.test:my-lib", "1.0.0", "io.root.io.test:my-lib", "1.0.0-patched"));
         writeProjectFiles();
 
         BuildResult result = GradleRunner.create()
@@ -120,12 +114,7 @@ class RootIoPatcherPluginFunctionalTest {
     void resolvesFromAutoRegisteredPkgRepo() throws IOException {
         // The plugin must auto-register {pkgUrl}/maven-patches so patched artifacts resolve
         // without the user needing to add the repository manually.
-        setupServerResponse(200,
-            "{\"patches\":[{" +
-            "\"package_name\":\"io.test:my-lib\",\"version\":\"1.0.0\"," +
-            "\"patch_alias\":{\"name\":\"io.root.io.test:my-lib\",\"version\":\"1.0.0-patched\"}," +
-            "\"cve_ids\":[]}]," +
-            "\"skipped\":[]}");
+        setupServerResponse(200, patchResponseJson("io.test:my-lib", "1.0.0", "io.root.io.test:my-lib", "1.0.0-patched"));
 
         // Original artifact in the project's own repo; patched artifact ONLY in the pkg repo.
         // The build script does NOT declare the pkg repo — the plugin must add it automatically.
@@ -172,12 +161,7 @@ class RootIoPatcherPluginFunctionalTest {
 
     @Test
     void worksWithConfigurationCache() throws IOException {
-        setupServerResponse(200,
-            "{\"patches\":[{" +
-            "\"package_name\":\"io.test:my-lib\",\"version\":\"1.0.0\"," +
-            "\"patch_alias\":{\"name\":\"io.root.io.test:my-lib\",\"version\":\"1.0.0-patched\"}," +
-            "\"cve_ids\":[]}]," +
-            "\"skipped\":[]}");
+        setupServerResponse(200, patchResponseJson("io.test:my-lib", "1.0.0", "io.root.io.test:my-lib", "1.0.0-patched"));
         writeProjectFiles();
 
         // First build: stores the configuration cache
@@ -209,7 +193,7 @@ class RootIoPatcherPluginFunctionalTest {
 
     @Test
     void resolvesApiKeyFromDotEnvFile() throws IOException {
-        setupServerResponse(200, "{\"patches\":[],\"skipped\":[]}");
+        setupServerResponse(200, emptyPatchResponseJson());
 
         File repoDir = new File(projectDir, "local-repo");
         createFakeArtifact(repoDir, "io.test", "my-lib", "1.0.0");
@@ -248,6 +232,20 @@ class RootIoPatcherPluginFunctionalTest {
     }
 
     // --- Helpers ---
+
+    private static String patchResponseJson(String packageName, String version, String patchedName, String patchedVersion) {
+        Map<String, Object> patchAlias = Map.of("name", patchedName, "version", patchedVersion);
+        Map<String, Object> patch = new java.util.LinkedHashMap<>();
+        patch.put("package_name", packageName);
+        patch.put("version", version);
+        patch.put("patch_alias", patchAlias);
+        patch.put("cve_ids", List.of());
+        return JsonOutput.toJson(Map.of("patches", List.of(patch), "skipped", List.of()));
+    }
+
+    private static String emptyPatchResponseJson() {
+        return JsonOutput.toJson(Map.of("patches", List.of(), "skipped", List.of()));
+    }
 
     private void setupServerResponse(int status, String body) {
         server.createContext("/v3/analyze/maven", exchange -> {
