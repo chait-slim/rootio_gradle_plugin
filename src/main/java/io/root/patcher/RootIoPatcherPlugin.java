@@ -9,45 +9,20 @@ import org.gradle.api.logging.Logging;
 import org.gradle.api.provider.Provider;
 import org.gradle.authentication.http.BasicAuthentication;
 
-import java.util.Map;
-
 public class RootIoPatcherPlugin implements Plugin<Project> {
     private static final Logger logger = Logging.getLogger(RootIoPatcherPlugin.class);
 
     @Override
     public void apply(Project project) {
-        RootIoExtension ext = project.getExtensions().create("rootio", RootIoExtension.class);
-        ext.getApiUrl().convention(envOrDefault("ROOTIO_API_URL", "https://api.root.io"));
-        ext.getPkgUrl().convention(envOrDefault("ROOTIO_PKG_URL", "https://pkg.root.io"));
-        ext.getTtlHours().convention(24L);
+        RootIoExtension extension = project.getExtensions().create("rootio", RootIoExtension.class);
+        extension.getApiUrl().convention(envOrDefault("ROOTIO_API_URL", "https://api.root.io"));
+        extension.getPkgUrl().convention(envOrDefault("ROOTIO_PKG_URL", "https://pkg.root.io"));
+        extension.getTtlHours().convention(24L);
         // apiKey resolved automatically from .env, systemProp, or env var
         new ApiKeyResolver().resolve(project.getRootDir())
-            .ifPresent(key -> ext.getApiKey().convention(key));
+            .ifPresent(key -> extension.getApiKey().convention(key));
 
-        // Auto-register the Root.io patches Maven repository so patched artifacts resolve
-        // without users needing to add it manually. Done in afterEvaluate so apiKey/pkgUrl
-        // are fully configured by the time we read them.
-        project.afterEvaluate(p -> {
-            String pkgBase = ext.getPkgUrl().get().replaceAll("/$", "");
-            String key = ext.getApiKey().getOrElse("(not set)");
-            String masked = key.length() > 8 ? key.substring(0, 4) + "..." + key.substring(key.length() - 4) : "(too short or not set)";
-            logger.info("Registering repo: {}/maven (apiKey: {})", pkgBase, masked);
-            p.getRepositories().maven(repo -> {
-                repo.setName("Root.io patches");
-                repo.setUrl(pkgBase + "/maven");
-                // Credentials only apply to HTTP(S) — file:// repos (e.g. in tests) reject them.
-                // BasicAuthentication forces preemptive auth so credentials are sent on the
-                // first request. Without it, Gradle waits for a 401 challenge, but artrepo
-                // returns 403 directly for unauthenticated requests.
-                if (pkgBase.startsWith("http://") || pkgBase.startsWith("https://")) {
-                    repo.credentials(creds -> {
-                        creds.setUsername("token");
-                        creds.setPassword(ext.getApiKey().get());
-                    });
-                    repo.authentication(auth -> auth.create("basic", BasicAuthentication.class));
-                }
-            });
-        });
+        project.afterEvaluate(p -> registerRootMavenRepo(p, extension));
 
         project.getConfigurations().all(config -> {
             // Only hook resolvable configurations — non-resolvable ones (e.g. `api`, `implementation`)
@@ -56,23 +31,51 @@ public class RootIoPatcherPlugin implements Plugin<Project> {
                 return;
             }
 
-            config.getResolutionStrategy().eachDependency(details -> {
-                ModuleVersionSelector req = details.getRequested();
-                String version = req.getVersion();
-
-                // Skip deps with no version — these are BOM/platform-managed or Kotlin-plugin-managed
-                // deps whose version is resolved separately. Sending an empty version to the API
-                // produces a 400.
-                if (version == null || version.isEmpty()) {
-                    logger.info("Skipping {}:{} (no version)", req.getGroup(), req.getName());
-                    return;
-                }
-
-                String coords = req.getGroup() + ":" + req.getName() + ":" + version;
-
-                resolvePatchedDependency(project, details, coords, ext);
-            });
+            config.getResolutionStrategy().eachDependency(details ->
+                    handleDependency(project, details, extension));
         });
+    }
+
+    // Auto-register the Root.io patches Maven repository so patched artifacts resolve
+    // without users needing to add it manually. Done in afterEvaluate so apiKey/pkgUrl
+    // are fully configured by the time we read them.
+    private static void registerRootMavenRepo(Project p, RootIoExtension extension) {
+        String pkgBase = extension.getPkgUrl().get().replaceAll("/$", "");
+        String key = extension.getApiKey().getOrElse("(not set)");
+        String masked = key.length() > 8 ? key.substring(0, 4) + "..." + key.substring(key.length() - 4) : "(too short or not set)";
+        logger.info("Registering repo: {}/maven (apiKey: {})", pkgBase, masked);
+        p.getRepositories().maven(repo -> {
+            repo.setName("Root.io patches");
+            repo.setUrl(pkgBase + "/maven");
+            // Credentials only apply to HTTP(S) — file:// repos (e.g. in tests) reject them.
+            // BasicAuthentication forces preemptive auth so credentials are sent on the
+            // first request. Without it, Gradle waits for a 401 challenge, but artrepo
+            // returns 403 directly for unauthenticated requests.
+            if (pkgBase.startsWith("http://") || pkgBase.startsWith("https://")) {
+                repo.credentials(creds -> {
+                    creds.setUsername("token");
+                    creds.setPassword(extension.getApiKey().get());
+                });
+                repo.authentication(auth -> auth.create("basic", BasicAuthentication.class));
+            }
+        });
+    }
+
+    private static void handleDependency(Project project, DependencyResolveDetails details, RootIoExtension extension) {
+        ModuleVersionSelector req = details.getRequested();
+        String version = req.getVersion();
+
+        // Skip deps with no version — these are BOM/platform-managed or Kotlin-plugin-managed
+        // deps whose version is resolved separately. Sending an empty version to the API
+        // produces a 400.
+        if (version == null || version.isEmpty()) {
+            logger.info("Skipping {}:{} (no version)", req.getGroup(), req.getName());
+            return;
+        }
+
+        String coords = req.getGroup() + ":" + req.getName() + ":" + version;
+
+        resolvePatchedDependency(project, details, coords, extension);
     }
 
     private static void resolvePatchedDependency(
@@ -88,6 +91,7 @@ public class RootIoPatcherPlugin implements Plugin<Project> {
             spec.getParameters().getRootDirPath().set(project.getRootDir().getAbsolutePath());
             spec.getParameters().getTtlHours().set(ext.getTtlHours());
         });
+        // gets from cache if available or resolves from Root.io if not
         String patched = patchedProvider.getOrNull();
 
         if (patched != null) {
