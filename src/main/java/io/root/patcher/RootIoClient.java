@@ -61,6 +61,12 @@ public class RootIoClient {
      * @throws GradleException after all retries are exhausted, or immediately on 4xx
      */
     public String query(String coords, String apiUrl, String apiKey) {
+        String[] parts = coords.split(":", 3);
+        if (parts.length != 3 || parts[0].isEmpty() || parts[1].isEmpty() || parts[2].isEmpty()) {
+            logger.warn("Skipping malformed coords (expected group:artifact:version): {}", coords);
+            return null;
+        }
+
         logger.debug("Querying Root.io API for {} at {}...", coords, apiUrl);
         HttpRequest request = prepareHttpRequest(coords, apiUrl, apiKey);
         Exception lastException = null;

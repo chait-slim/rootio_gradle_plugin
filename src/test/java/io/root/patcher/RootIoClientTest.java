@@ -158,6 +158,51 @@ class RootIoClientTest {
         assertEquals(expected, capturedAuth.get());
     }
 
+    @Test
+    void returnsNullAndSkipsRequestForMissingGroup() {
+        AtomicInteger callCount = new AtomicInteger(0);
+        server.createContext("/v3/analyze/maven", exchange -> {
+            callCount.incrementAndGet();
+            exchange.sendResponseHeaders(200, -1);
+            exchange.getResponseBody().close();
+        });
+
+        String result = noRetryClient().query(":artifact:1.0", "http://localhost:" + port, "test-key");
+
+        assertNull(result);
+        assertEquals(0, callCount.get());
+    }
+
+    @Test
+    void returnsNullAndSkipsRequestForMissingArtifact() {
+        AtomicInteger callCount = new AtomicInteger(0);
+        server.createContext("/v3/analyze/maven", exchange -> {
+            callCount.incrementAndGet();
+            exchange.sendResponseHeaders(200, -1);
+            exchange.getResponseBody().close();
+        });
+
+        String result = noRetryClient().query("org.example::1.0", "http://localhost:" + port, "test-key");
+
+        assertNull(result);
+        assertEquals(0, callCount.get());
+    }
+
+    @Test
+    void returnsNullAndSkipsRequestForMissingVersion() {
+        AtomicInteger callCount = new AtomicInteger(0);
+        server.createContext("/v3/analyze/maven", exchange -> {
+            callCount.incrementAndGet();
+            exchange.sendResponseHeaders(200, -1);
+            exchange.getResponseBody().close();
+        });
+
+        String result = noRetryClient().query("org.example:artifact:", "http://localhost:" + port, "test-key");
+
+        assertNull(result);
+        assertEquals(0, callCount.get());
+    }
+
     private void respondWith(int status, String body) {
         server.createContext("/v3/analyze/maven", exchange -> {
             byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
