@@ -130,15 +130,19 @@ public class RootIoClient {
                         REQUEST_PACKAGE_VERSION, version))));
         String endpoint = apiUrl.replaceAll("/$", "") + ENDPOINT_ANALYZE_MAVEN;
 
-        String credentials = Base64.getEncoder()
-            .encodeToString((apiKey + ":").getBytes(StandardCharsets.UTF_8));
-
         return HttpRequest.newBuilder()
             .uri(URI.create(endpoint))
             .header("Content-Type", "application/json")
-            .header("Authorization", "Basic " + credentials)
+            .header("Authorization", basicAuthHeader(apiKey, ""))
             .POST(HttpRequest.BodyPublishers.ofString(requestBody, StandardCharsets.UTF_8))
             .build();
+    }
+
+    private static String basicAuthHeader(String username, String password) {
+        String rawCredentials = username + ":" + password;
+        String credentials = Base64.getEncoder()
+            .encodeToString((rawCredentials).getBytes(StandardCharsets.UTF_8));
+        return "Basic " + credentials;
     }
 
     @SuppressWarnings("unchecked")
