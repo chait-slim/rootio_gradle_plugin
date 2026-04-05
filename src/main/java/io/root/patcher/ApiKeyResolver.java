@@ -1,8 +1,10 @@
 package io.root.patcher;
 
+import org.gradle.api.GradleException;
 import org.gradle.api.logging.Logger;
 import org.gradle.api.logging.Logging;
 
+import javax.annotation.Nullable;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -46,6 +48,22 @@ public class ApiKeyResolver {
         }
 
         return Optional.empty();
+    }
+
+    /**
+     * Resolves the API key from all sources in descending priority order:
+     * explicit override > environment variable > system property > .env file.
+     * Throws {@link GradleException} if no source provides a non-empty value.
+     *
+     * @param explicitKey value set directly in the build script or passed via extension/parameters; may be null
+     */
+    public String resolveOrThrow(@Nullable String explicitKey, File projectRootDir) {
+        return Optional.ofNullable(explicitKey)
+            .filter(k -> !k.isEmpty())
+            .or(() -> resolve(projectRootDir))
+            .orElseThrow(() -> new GradleException(
+                "rootIo.apiKey must be set — provide it via the rootio { } block, " +
+                "ROOTIO_API_KEY env var, system property, or .env file"));
     }
 
     private String readDotEnv(File projectRootDir) {

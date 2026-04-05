@@ -11,7 +11,9 @@ import org.gradle.authentication.http.BasicAuthentication;
 
 public class RootIoPatcherPlugin implements Plugin<Project> {
     private static final Logger logger = Logging.getLogger(RootIoPatcherPlugin.class);
+    private static final String MAVEN_REPO_NAME = "Root.io patches";
     private static final String MAVEN_REPO_USERNAME = "token";
+    private static final ApiKeyResolver apiKeyResolver = new ApiKeyResolver();
 
     @Override
     public void apply(Project project) {
@@ -23,8 +25,8 @@ public class RootIoPatcherPlugin implements Plugin<Project> {
         extension.getRetryBaseDelayMs().convention(1000L);
         extension.getAllowInsecurePkgRepo().convention(false);
         // apiKey resolved automatically from .env, systemProp, or env var
-        new ApiKeyResolver().resolve(project.getRootDir())
-            .ifPresent(key -> extension.getApiKey().convention(key));
+        // it will throw an exception if not set later on in afterEvaluate
+        apiKeyResolver.resolve(project.getRootDir()).ifPresent(key -> extension.getApiKey().convention(key));
 
         project.afterEvaluate(p -> registerRootMavenRepo(p, extension));
 
@@ -47,20 +49,23 @@ public class RootIoPatcherPlugin implements Plugin<Project> {
     // are fully configured by the time we read them.
     private static void registerRootMavenRepo(Project p, RootIoExtension extension) {
         String pkgBase = extension.getPkgUrl().get().replaceAll("/$", "");
-        String key = extension.getApiKey().getOrElse("(not set)");
-        String masked = key.length() > 8 ? key.substring(0, 4) + "..." + key.substring(key.length() - 4) : "(too short or not set)";
-        logger.info("Registering repo: {}/maven (apiKey: {})", pkgBase, masked);
+        boolean isHttpRepo = pkgBase.startsWith("http://") || pkgBase.startsWith("https://");
+        String apiKey = isHttpRepo
+            ? apiKeyResolver.resolveOrThrow(extension.getApiKey().getOrNull(), p.getRootDir())
+            : null;
+
+        logger.info("Registering repo: {}/maven (apiKey: {})", pkgBase, maskApiKey(apiKey));
         p.getRepositories().maven(repo -> {
-            repo.setName("Root.io patches");
+            repo.setName(MAVEN_REPO_NAME);
             repo.setUrl(pkgBase + "/maven");
             // Credentials only apply to HTTP(S) — file:// repos (e.g. in tests) reject them.
             // BasicAuthentication forces preemptive auth so credentials are sent on the
             // first request. Without it, Gradle waits for a 401 challenge, but artrepo
             // returns 403 directly for unauthenticated requests.
-            if (pkgBase.startsWith("http://") || pkgBase.startsWith("https://")) {
+            if (isHttpRepo) {
                 repo.credentials(creds -> {
                     creds.setUsername(MAVEN_REPO_USERNAME);
-                    creds.setPassword(extension.getApiKey().get());
+                    creds.setPassword(apiKey);
                 });
                 repo.authentication(auth -> auth.create("basic", BasicAuthentication.class));
             }
@@ -118,5 +123,11 @@ public class RootIoPatcherPlugin implements Plugin<Project> {
     private static String envOrDefault(String name, String defaultValue) {
         String val = System.getenv(name);
         return (val != null && !val.isEmpty()) ? val : defaultValue;
+    }
+
+    private static String maskApiKey(String apiKey) {
+        return apiKey != null && apiKey.length() > 8 ?
+                apiKey.substring(0, 4) + "..." + apiKey.substring(apiKey.length() - 4) :
+                "(too short)";
     }
 }
