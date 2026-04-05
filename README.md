@@ -1,38 +1,62 @@
- # Root.io Gradle Plugin
+# Root.io Gradle Plugin
 
 Automatically patches vulnerable Java dependencies with secure versions from the [Root.io](https://root.io) registry — no changes to your dependency declarations required.
 
-When you run a Gradle build, the plugin:
-1. Intercepts dependency resolution for every resolvable configuration
-2. Queries the Root.io API to check whether a patched version exists
-3. Transparently substitutes vulnerable coordinates with patched ones
-4. Registers the Root.io package registry as a Maven repository so patched artifacts resolve
+## What It Does
 
-## Local Development
+The Root.io Gradle plugin silently upgrades vulnerable dependencies to patched versions at build time. It requires no changes to your `dependencies {}` block: you keep declaring the versions you know, and the plugin transparently swaps in secure replacements wherever Root.io has a patch available.
 
-### Prerequisites
+### How It Works
 
+When a Gradle build resolves dependencies, the plugin:
+
+1. **Intercepts dependency resolution** for every resolvable configuration in your project
+2. **Queries the Root.io API** to check whether a patched version of each dependency exists
+3. **Substitutes vulnerable coordinates** with patched ones using Gradle's `ResolutionStrategy.eachDependency` mechanism
+4. **Registers the Root.io Maven registry** (`https://pkg.root.io/maven`) as a repository so patched artifacts resolve automatically
+
+API responses are cached locally under `.gradle/rootio-cache/` (SHA-1-keyed JSON files) to avoid repeated network calls. The cache TTL defaults to 24 hours and is configurable.
+
+### Example
+
+You declare:
+
+```kotlin
+implementation("io.netty:netty-handler:4.1.118.Final")
+```
+
+If Root.io has a patch for that version, Gradle resolves a secure drop-in replacement instead — at the same coordinates but sourced from the Root.io registry — without any change to your build file.
+
+## Requirements
+
+- Gradle 7.0 or later
 - JDK 11 or later
-
-### Running tests
-
-```bash
-make test
-```
-
-### Publishing to the local Maven repository
-
-To test the plugin in another local project before publishing:
-
-```bash
-make publish-local
-```
-
-Then reference it from your local project by adding `mavenLocal()` to your `pluginManagement` repositories.
+- A Root.io API key ([sign up at root.io](https://root.io))
 
 ## Installation
 
-Add the plugin to your `build.gradle.kts`:
+### Option A: Root.io Maven Repository
+
+The plugin is published to Root.io's Maven repository. Add the repository to your `settings.gradle.kts` and apply the plugin:
+
+**`settings.gradle.kts`**
+
+```kotlin
+pluginManagement {
+    repositories {
+        maven {
+            url = uri("https://pkg.root.io/maven")
+            credentials {
+                username = "token"
+                password = providers.environmentVariable("ROOTIO_API_KEY").get()
+            }
+        }
+        gradlePluginPortal()
+    }
+}
+```
+
+**`build.gradle.kts`**
 
 ```kotlin
 plugins {
@@ -40,7 +64,40 @@ plugins {
 }
 ```
 
-For multi-project builds, apply it once in the root `build.gradle.kts`:
+### Option B: Build Locally (mavenLocal)
+
+Clone the repository and publish to your local Maven cache:
+
+```bash
+git clone https://github.com/rootio/rootio-gradle-plugin.git
+cd rootio-gradle-plugin
+make publish-local
+```
+
+Then reference it from your project by adding `mavenLocal()` to `pluginManagement` repositories:
+
+**`settings.gradle.kts`**
+
+```kotlin
+pluginManagement {
+    repositories {
+        mavenLocal()
+        gradlePluginPortal()
+    }
+}
+```
+
+**`build.gradle.kts`**
+
+```kotlin
+plugins {
+    id("io.root.patcher") version "0.1.0"
+}
+```
+
+### Multi-project Builds
+
+Apply the plugin once in the root `build.gradle.kts`:
 
 ```kotlin
 plugins {
@@ -65,7 +122,7 @@ The plugin resolves your Root.io API key automatically. Sources are checked in t
 | 2 | JVM system property | `systemProp.ROOTIO_API_KEY=your-key` in `~/.gradle/gradle.properties` |
 | 1 — lowest | `.env` file | `ROOTIO_API_KEY=your-key` in project root `.env` |
 
-### Option 1: Environment variable
+### Option 1: Environment Variable
 
 ```bash
 export ROOTIO_API_KEY=your-api-key
@@ -73,7 +130,7 @@ export ROOTIO_API_KEY=your-api-key
 
 Good for CI/CD pipelines where the key is injected as a secret.
 
-### Option 2: Global Gradle properties (recommended for local development)
+### Option 2: Global Gradle Properties (recommended for local development)
 
 Add to `~/.gradle/gradle.properties` — this file lives in your home directory and is never part of any project:
 
@@ -85,7 +142,7 @@ The `systemProp.` prefix is required. Gradle exposes entries with this prefix as
 
 This works for every project on your machine without any per-project setup.
 
-### Option 3: `.env` file
+### Option 3: `.env` File
 
 Create a `.env` file in the project root:
 
@@ -95,7 +152,7 @@ ROOTIO_API_KEY=your-api-key
 
 Add `.env` to your `.gitignore` to keep the key out of version control. A `.env.example` template is included in this repository.
 
-### Option 4: Build script (explicit override)
+### Option 4: Build Script (explicit override)
 
 ```kotlin
 rootio {
@@ -123,3 +180,43 @@ rootio {
     ttlHours.set(48)
 }
 ```
+
+## Local Development
+
+### Prerequisites
+
+- JDK 11 or later
+
+### Running Tests
+
+```bash
+make test
+```
+
+### Publishing to the Local Maven Repository
+
+To test the plugin in another local project before publishing:
+
+```bash
+make publish-local
+```
+
+Then reference it from your local project by adding `mavenLocal()` to your `pluginManagement` repositories as shown in [Option B](#option-b-build-locally-mavenlocal) above.
+
+## Examples
+
+The repository includes two example projects under `example/` and `example-multi-projects/` that demonstrate single-project and multi-project setups respectively. Both use `mavenLocal()` and expect the plugin to be published locally first (`make publish-local`).
+
+## Contributing
+
+Contributions are welcome. Please open an issue to discuss a proposed change before submitting a pull request.
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b my-feature`)
+3. Make your changes and add tests
+4. Run the test suite (`make test`) and ensure everything passes
+5. Open a pull request
+
+## License
+
+This project is licensed under the [Apache License 2.0](LICENSE).

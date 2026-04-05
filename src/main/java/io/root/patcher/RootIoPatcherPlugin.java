@@ -27,7 +27,9 @@ public class RootIoPatcherPlugin implements Plugin<Project> {
 
         project.getConfigurations().all(config -> {
             // Only hook resolvable configurations — non-resolvable ones (e.g. `api`, `implementation`)
-            // are for declaring dependencies and cannot have eachDependency applied safely.
+            // are for declaring dependencies and do not support eachDependency. Their dependencies
+            // are still patched because resolvable configurations (e.g. `compileClasspath`,
+            // `runtimeClasspath`) inherit from them and are processed below.
             if (!config.isCanBeResolved()) {
                 return;
             }
