@@ -77,13 +77,12 @@ public class ApiKeyResolver {
                 if (trimmed.isEmpty() || trimmed.startsWith("#")) {
                     continue;
                 }
-                int eq = trimmed.indexOf('=');
-                if (eq < 0) {
+                String[] parts = trimmed.split("=", 2);
+                if (parts.length < 2) {
                     continue;
                 }
-                String k = trimmed.substring(0, eq).trim();
-                if (ROOTIO_API_KEY.equals(k)) {
-                    return trimmed.substring(eq + 1).trim();
+                if (ROOTIO_API_KEY.equals(parts[0].trim())) {
+                    return parts[1].trim();
                 }
             }
         } catch (IOException e) {
