@@ -10,7 +10,7 @@ import java.util.Optional;
 import java.util.function.Function;
 
 public class ApiKeyResolver {
-    static final String KEY = "ROOTIO_API_KEY";
+    private static final String ROOTIO_API_KEY = "ROOTIO_API_KEY";
     private static final Logger logger = Logging.getLogger(ApiKeyResolver.class);
 
     private final Function<String, String> envVarReader;
@@ -30,12 +30,12 @@ public class ApiKeyResolver {
      * Returns Optional.empty() if no source provides a non-empty value.
      */
     public Optional<String> resolve(File projectRootDir) {
-        String fromEnvVar = envVarReader.apply(KEY);
+        String fromEnvVar = envVarReader.apply(ROOTIO_API_KEY);
         if (fromEnvVar != null && !fromEnvVar.isEmpty()) {
             return Optional.of(fromEnvVar);
         }
 
-        String fromSysProp = System.getProperty(KEY);
+        String fromSysProp = System.getProperty(ROOTIO_API_KEY);
         if (fromSysProp != null && !fromSysProp.isEmpty()) {
             return Optional.of(fromSysProp);
         }
@@ -58,7 +58,7 @@ public class ApiKeyResolver {
                 int eq = trimmed.indexOf('=');
                 if (eq < 0) continue;
                 String k = trimmed.substring(0, eq).trim();
-                if (KEY.equals(k)) {
+                if (ROOTIO_API_KEY.equals(k)) {
                     return trimmed.substring(eq + 1).trim();
                 }
             }
