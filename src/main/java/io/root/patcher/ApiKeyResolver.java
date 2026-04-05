@@ -50,13 +50,19 @@ public class ApiKeyResolver {
 
     private String readDotEnv(File projectRootDir) {
         File dotEnvFile = new File(projectRootDir, ".env");
-        if (!dotEnvFile.exists()) return null;
+        if (!dotEnvFile.exists()) {
+            return null;
+        }
         try {
             for (String line : Files.readAllLines(dotEnvFile.toPath())) {
                 String trimmed = line.trim();
-                if (trimmed.isEmpty() || trimmed.startsWith("#")) continue;
+                if (trimmed.isEmpty() || trimmed.startsWith("#")) {
+                    continue;
+                }
                 int eq = trimmed.indexOf('=');
-                if (eq < 0) continue;
+                if (eq < 0) {
+                    continue;
+                }
                 String k = trimmed.substring(0, eq).trim();
                 if (ROOTIO_API_KEY.equals(k)) {
                     return trimmed.substring(eq + 1).trim();
