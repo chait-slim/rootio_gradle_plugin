@@ -18,6 +18,8 @@ public class RootIoPatcherPlugin implements Plugin<Project> {
         extension.getApiUrl().convention(envOrDefault("ROOTIO_API_URL", "https://api.root.io"));
         extension.getPkgUrl().convention(envOrDefault("ROOTIO_PKG_URL", "https://pkg.root.io"));
         extension.getTtlHours().convention(24L);
+        extension.getMaxRetries().convention(3);
+        extension.getRetryBaseDelayMs().convention(1000L);
         extension.getAllowInsecurePkgRepo().convention(false);
         // apiKey resolved automatically from .env, systemProp, or env var
         new ApiKeyResolver().resolve(project.getRootDir())
@@ -96,6 +98,8 @@ public class RootIoPatcherPlugin implements Plugin<Project> {
             spec.getParameters().getApiKey().set(ext.getApiKey());
             spec.getParameters().getRootDirPath().set(project.getRootDir().getAbsolutePath());
             spec.getParameters().getTtlHours().set(ext.getTtlHours());
+            spec.getParameters().getMaxRetries().set(ext.getMaxRetries());
+            spec.getParameters().getRetryBaseDelayMs().set(ext.getRetryBaseDelayMs());
         });
         // gets from cache if available or resolves from Root.io if not
         String patched = patchedProvider.getOrNull();

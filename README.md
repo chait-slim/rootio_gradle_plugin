@@ -166,18 +166,22 @@ Use this when the key is already managed outside of source control (e.g. injecte
 
 All settings are optional beyond the API key. Configure them inside the `rootio {}` block:
 
-| Property | Default | Description |
-|----------|---------|-------------|
-| `apiKey` | — | Your Root.io API key |
-| `apiUrl` | `https://api.root.io` | Root.io API base URL |
-| `pkgUrl` | `https://pkg.root.io` | Root.io package registry base URL |
-| `ttlHours` | `24` | Hours to cache API responses locally. Set to `0` to disable caching. |
+| Property           | Default               | Description                                                                                                                    |
+|--------------------|-----------------------|--------------------------------------------------------------------------------------------------------------------------------|
+| `apiKey`           | —                     | Your Root.io API key                                                                                                           |
+| `apiUrl`           | `https://api.root.io` | Root.io API base URL                                                                                                           |
+| `pkgUrl`           | `https://pkg.root.io` | Root.io package registry base URL                                                                                              |
+| `ttlHours`         | `24`                  | Hours to cache API responses locally. Set to `0` to disable caching.                                                           |
+| `maxRetries`       | `3`                   | Max retry attempts on transient failures (5xx, network errors). Set to `0` to disable retries.                                 |
+| `retryBaseDelayMs` | `1000`                | Base delay in milliseconds for exponential backoff between retries. Delay doubles on each attempt (1000ms, 2000ms, 4000ms, …). |
 
-Example — extend the cache TTL:
+Example — extend the cache TTL and adjust retry behavior:
 
 ```kotlin
 rootio {
     ttlHours.set(48)
+    maxRetries.set(5)
+    retryBaseDelayMs.set(500)
 }
 ```
 

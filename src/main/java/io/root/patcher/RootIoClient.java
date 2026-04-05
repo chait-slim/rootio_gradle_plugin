@@ -16,22 +16,29 @@ import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
+import java.util.function.IntToLongFunction;
 
 public class RootIoClient {
     private static final Logger logger = Logging.getLogger(RootIoClient.class);
 
     private final HttpClient httpClient;
+    private final int maxRetries;
+    private final IntToLongFunction retryDelayMs;
 
-    public RootIoClient() {
-        // Shared across all query() calls within a build — reuses TLS connections
-        this(HttpClient.newBuilder()
-            .version(HttpClient.Version.HTTP_2)
-            .build());
+    public RootIoClient(int maxRetries, long baseDelayMs) {
+        this(
+            // Shared across all query() calls within a build — reuses TLS connections
+            HttpClient.newBuilder().version(HttpClient.Version.HTTP_2).build(),
+            maxRetries,
+            attempt -> baseDelayMs * (1L << attempt)
+        );
     }
 
-    /** Package-private constructor for tests — allows injecting a fake HTTP client. */
-    RootIoClient(HttpClient httpClient) {
+    /** Package-private constructor for tests — allows injecting a fake HTTP client and delay function. */
+    RootIoClient(HttpClient httpClient, int maxRetries, IntToLongFunction retryDelayMs) {
         this.httpClient = httpClient;
+        this.maxRetries = maxRetries;
+        this.retryDelayMs = retryDelayMs;
     }
 
     private static final String ENDPOINT_ANALYZE_MAVEN = "/v3/analyze/maven";
@@ -44,36 +51,69 @@ public class RootIoClient {
     private static final String RESPONSE_PATCH_ALIAS = "patch_alias";
 
     /**
-     * Query the Root.io API for a patch for the given dependency.
+     * Query the Root.io API for a patch for the given dependency, with exponential backoff retries.
+     * Retries on network errors and 5xx responses; fails immediately on 4xx.
      *
      * @param coords  Maven GAV string — "group:artifact:version"
      * @param apiUrl  Root.io API base URL (e.g. "<a href="https://api.root.io">...</a>")
      * @param apiKey  Root.io API key (used as HTTP basic auth username)
      * @return patched GAV string ("io.root.group:artifact:version"), or null if no patch
-     * @throws GradleException on non-200 response or network failure (fails the build)
+     * @throws GradleException after all retries are exhausted, or immediately on 4xx
      */
     public String query(String coords, String apiUrl, String apiKey) {
         logger.debug("Querying Root.io API for {} at {}...", coords, apiUrl);
         HttpRequest request = prepareHttpRequest(coords, apiUrl, apiKey);
+        Exception lastException = null;
 
-        try {
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-            if (response.statusCode() != 200) {
-                throw new GradleException(
-                    "Root.io API returned HTTP " + response.statusCode() + " for " + coords);
+        for (int attempt = 0; attempt <= maxRetries; attempt++) {
+            backoffDelay(coords, attempt);
+
+            try {
+                HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+                int status = response.statusCode();
+                if (status == 200) {
+                    logger.debug("Root.io API response for {}: {}", coords, response.body());
+                    return extractPatchedCoords(response.body());
+                }
+                if (status >= 500) {
+                    lastException = new GradleException("Root.io API returned HTTP " + status + " for " + coords);
+                    continue; // retry on 5xx
+                }
+                // 4xx — client error, no point retrying
+                throw new GradleException("Root.io API returned HTTP " + status + " for " + coords);
+            } catch (GradleException e) {
+                throw e;
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new GradleException("Root.io API request interrupted for " + coords, e);
+            } catch (IOException e) {
+                lastException = e;
+                // retry
             }
-            logger.debug("Root.io API response for {}: {}", coords, response.body());
-            return extractPatchedCoords(response.body());
-        } catch (GradleException e) {
-            // rethrow GradleException as-is, so that it's reported as a build failure
-            throw e;
+        }
+
+        // a valid request would have returned early, if we got here we should throw
+        if (lastException == null) {
+            throw new GradleException(
+                    "Root.io API request failed for " + coords + " after " + maxRetries + " retries");
+        }
+
+        throw new GradleException(
+            "Root.io API request failed for " + coords + " after " + maxRetries + " retries: " + lastException.getMessage(),
+            lastException);
+    }
+
+    private void backoffDelay(String coords, int attempt) {
+        if (attempt == 0) {
+            return;
+        }
+
+        logger.warn("Retrying Root.io API request for {} (attempt {}/{})...", coords, attempt, maxRetries);
+        try {
+            Thread.sleep(retryDelayMs.applyAsLong(attempt - 1));
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw new GradleException(
-                "Root.io API request interrupted for " + coords, e);
-        } catch (IOException e) {
-            throw new GradleException(
-                "Root.io API request failed for " + coords + ": " + e.getMessage(), e);
+            throw new GradleException("Root.io API request interrupted for " + coords, e);
         }
     }
 

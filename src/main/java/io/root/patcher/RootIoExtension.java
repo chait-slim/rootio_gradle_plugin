@@ -12,6 +12,12 @@ public abstract class RootIoExtension {
     /** Cache TTL in hours. Default: 24. Set to 0 for no caching. */
     public abstract Property<Long> getTtlHours();
 
+    /** Max number of retry attempts on transient failures. Default: 3. Set to 0 to disable retries. */
+    public abstract Property<Integer> getMaxRetries();
+
+    /** Base delay in milliseconds for exponential backoff between retries. Default: 1000. */
+    public abstract Property<Long> getRetryBaseDelayMs();
+
     /** Root.io package registry base URL. Default: <a href="https://pkg.root.io">...</a> */
     public abstract Property<String> getPkgUrl();
 
