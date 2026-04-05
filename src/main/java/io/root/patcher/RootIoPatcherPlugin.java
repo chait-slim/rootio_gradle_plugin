@@ -11,6 +11,7 @@ import org.gradle.authentication.http.BasicAuthentication;
 
 public class RootIoPatcherPlugin implements Plugin<Project> {
     private static final Logger logger = Logging.getLogger(RootIoPatcherPlugin.class);
+    private static final String MAVEN_REPO_USERNAME = "token";
 
     @Override
     public void apply(Project project) {
@@ -58,7 +59,7 @@ public class RootIoPatcherPlugin implements Plugin<Project> {
             // returns 403 directly for unauthenticated requests.
             if (pkgBase.startsWith("http://") || pkgBase.startsWith("https://")) {
                 repo.credentials(creds -> {
-                    creds.setUsername("token");
+                    creds.setUsername(MAVEN_REPO_USERNAME);
                     creds.setPassword(extension.getApiKey().get());
                 });
                 repo.authentication(auth -> auth.create("basic", BasicAuthentication.class));
