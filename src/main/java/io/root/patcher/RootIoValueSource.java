@@ -9,6 +9,8 @@ import java.io.File;
 
 public abstract class RootIoValueSource implements ValueSource<String, RootIoValueSource.Parameters> {
 
+    private static final RootIoClient CLIENT = new RootIoClient();
+
     public interface Parameters extends ValueSourceParameters {
         Property<String> getCoords();
         Property<String> getApiUrl();
@@ -25,7 +27,7 @@ public abstract class RootIoValueSource implements ValueSource<String, RootIoVal
             p.getCoords().get(),
             new File(p.getRootDirPath().get()),
             p.getTtlHours().get(),
-            () -> RootIoClient.query(
+            () -> CLIENT.query(
                 p.getCoords().get(),
                 p.getApiUrl().get(),
                 p.getApiKey().get()

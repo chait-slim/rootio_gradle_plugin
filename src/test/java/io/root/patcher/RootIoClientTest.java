@@ -38,7 +38,7 @@ class RootIoClientTest {
     void returnsNullWhenNoPatchAvailable() {
         respondWith(200, JsonOutput.toJson(Map.of("patches", List.of(), "skipped", List.of())));
 
-        String result = RootIoClient.query("org.example:foo:1.0", "http://localhost:" + port, "test-key");
+        String result = new RootIoClient().query("org.example:foo:1.0", "http://localhost:" + port, "test-key");
 
         assertNull(result);
     }
@@ -54,7 +54,7 @@ class RootIoClientTest {
                 "cve_ids", List.of())),
             "skipped", List.of())));
 
-        String result = RootIoClient.query("org.example:foo:1.0", "http://localhost:" + port, "test-key");
+        String result = new RootIoClient().query("org.example:foo:1.0", "http://localhost:" + port, "test-key");
 
         assertEquals("io.root.org.example:foo:1.0-patched", result);
     }
@@ -64,7 +64,7 @@ class RootIoClientTest {
         respondWith(500, "");
 
         assertThrows(GradleException.class, () ->
-            RootIoClient.query("org.example:foo:1.0", "http://localhost:" + port, "test-key"));
+            new RootIoClient().query("org.example:foo:1.0", "http://localhost:" + port, "test-key"));
     }
 
     @Test
@@ -72,14 +72,14 @@ class RootIoClientTest {
         respondWith(401, "");
 
         assertThrows(GradleException.class, () ->
-            RootIoClient.query("org.example:foo:1.0", "http://localhost:" + port, "test-key"));
+            new RootIoClient().query("org.example:foo:1.0", "http://localhost:" + port, "test-key"));
     }
 
     @Test
     void throwsGradleExceptionOnConnectionFailure() {
         // Port 1 has no server — connection will be refused
         assertThrows(GradleException.class, () ->
-            RootIoClient.query("org.example:foo:1.0", "http://localhost:1", "test-key"));
+            new RootIoClient().query("org.example:foo:1.0", "http://localhost:1", "test-key"));
     }
 
     private void respondWith(int status, String body) {

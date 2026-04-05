@@ -20,10 +20,19 @@ import java.util.Map;
 public class RootIoClient {
     private static final Logger logger = Logging.getLogger(RootIoClient.class);
 
-    // Shared across all query() calls within a build — reuses TLS connections
-    private static final HttpClient HTTP_CLIENT = HttpClient.newBuilder()
-        .version(HttpClient.Version.HTTP_2)
-        .build();
+    private final HttpClient httpClient;
+
+    public RootIoClient() {
+        // Shared across all query() calls within a build — reuses TLS connections
+        this(HttpClient.newBuilder()
+            .version(HttpClient.Version.HTTP_2)
+            .build());
+    }
+
+    /** Package-private constructor for tests — allows injecting a fake HTTP client. */
+    RootIoClient(HttpClient httpClient) {
+        this.httpClient = httpClient;
+    }
 
     private static final String ENDPOINT_ANALYZE_MAVEN = "/v3/analyze/maven";
 
@@ -43,12 +52,12 @@ public class RootIoClient {
      * @return patched GAV string ("io.root.group:artifact:version"), or null if no patch
      * @throws GradleException on non-200 response or network failure (fails the build)
      */
-    public static String query(String coords, String apiUrl, String apiKey) {
+    public String query(String coords, String apiUrl, String apiKey) {
         logger.debug("Querying Root.io API for {} at {}...", coords, apiUrl);
         HttpRequest request = prepareHttpRequest(coords, apiUrl, apiKey);
 
         try {
-            HttpResponse<String> response = HTTP_CLIENT.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
             if (response.statusCode() != 200) {
                 throw new GradleException(
                     "Root.io API returned HTTP " + response.statusCode() + " for " + coords);
