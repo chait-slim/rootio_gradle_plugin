@@ -1,0 +1,185 @@
+package io.root.patcher;
+
+import org.gradle.api.GradleException;
+
+import groovy.json.JsonOutput;
+import groovy.json.JsonSlurper;
+import org.gradle.api.logging.Logger;
+import org.gradle.api.logging.Logging;
+
+import java.io.IOException;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
+import java.util.List;
+import java.util.Map;
+import java.util.function.IntToLongFunction;
+
+public class RootIoClient {
+    private static final Logger logger = Logging.getLogger(RootIoClient.class);
+
+    private final HttpClient httpClient;
+    private final int maxRetries;
+    private final IntToLongFunction retryDelayMs;
+
+    public RootIoClient(int maxRetries, long baseDelayMs) {
+        this(
+            // Shared across all query() calls within a build — reuses TLS connections
+            HttpClient.newBuilder().version(HttpClient.Version.HTTP_2).build(),
+            maxRetries,
+            attempt -> baseDelayMs * (1L << attempt)
+        );
+    }
+
+    /** Package-private constructor for tests — allows injecting a fake HTTP client and delay function. */
+    RootIoClient(HttpClient httpClient, int maxRetries, IntToLongFunction retryDelayMs) {
+        this.httpClient = httpClient;
+        this.maxRetries = maxRetries;
+        this.retryDelayMs = retryDelayMs;
+    }
+
+    private static final String ENDPOINT_ANALYZE_MAVEN = "/v3/analyze/maven";
+
+    private static final String REQUEST_PACKAGES = "packages";
+    private static final String REQUEST_PACKAGE_NAME = "name";
+    private static final String REQUEST_PACKAGE_VERSION = "version";
+
+    private static final String RESPONSE_PATCHES = "patches";
+    private static final String RESPONSE_PATCH_ALIAS = "patch_alias";
+
+    /**
+     * Query the Root.io API for a patch for the given dependency, with exponential backoff retries.
+     * Retries on network errors and 5xx responses; fails immediately on 4xx.
+     *
+     * @param coords  Maven GAV string — "group:artifact:version"
+     * @param apiUrl  Root.io API base URL (e.g. "<a href="https://api.root.io">...</a>")
+     * @param apiKey  Root.io API key (used as HTTP basic auth username)
+     * @return patched GAV string ("io.root.group:artifact:version"), or null if no patch
+     * @throws GradleException after all retries are exhausted, or immediately on 4xx
+     */
+    public String query(String coords, String apiUrl, String apiKey) {
+        String[] parts = coords.split(":", 3);
+        if (parts.length != 3 || parts[0].isEmpty() || parts[1].isEmpty() || parts[2].isEmpty()) {
+            logger.warn("Skipping malformed coords (expected group:artifact:version): {}", coords);
+            return null;
+        }
+
+        logger.debug("Querying Root.io API for {} at {}...", coords, apiUrl);
+        HttpRequest request = prepareHttpRequest(coords, apiUrl, apiKey);
+        Exception lastException = null;
+
+        for (int attempt = 0; attempt <= maxRetries; attempt++) {
+            backoffDelay(coords, attempt);
+
+            try {
+                HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+                int status = response.statusCode();
+                if (status == 200) {
+                    logger.debug("Root.io API response for {}: {}", coords, response.body());
+                    return extractPatchedCoords(response.body());
+                }
+                if (status >= 500) {
+                    lastException = new GradleException("Root.io API returned HTTP " + status + " for " + coords);
+                    continue; // retry on 5xx
+                }
+                // 4xx — client error, no point retrying
+                throw new GradleException("Root.io API returned HTTP " + status + " for " + coords);
+            } catch (GradleException e) {
+                throw e;
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new GradleException("Root.io API request interrupted for " + coords, e);
+            } catch (IOException e) {
+                lastException = e;
+                // retry
+            }
+        }
+
+        // a valid request would have returned early, if we got here we should throw
+        if (lastException == null) {
+            throw new GradleException(
+                    "Root.io API request failed for " + coords + " after " + maxRetries + " retries");
+        }
+
+        throw new GradleException(
+            "Root.io API request failed for " + coords + " after " + maxRetries + " retries: " + lastException.getMessage(),
+            lastException);
+    }
+
+    private void backoffDelay(String coords, int attempt) {
+        if (attempt == 0) {
+            return;
+        }
+
+        logger.warn("Retrying Root.io API request for {} (attempt {}/{})...", coords, attempt, maxRetries);
+        try {
+            Thread.sleep(retryDelayMs.applyAsLong(attempt - 1));
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new GradleException("Root.io API request interrupted for " + coords, e);
+        }
+    }
+
+    private static HttpRequest prepareHttpRequest(String coords, String apiUrl, String apiKey) {
+        // Split "group:artifact:version" — last colon separates version
+        int lastColon = coords.lastIndexOf(':');
+        String groupArtifact = coords.substring(0, lastColon);
+        String version = coords.substring(lastColon + 1);
+
+        String requestBody = JsonOutput.toJson(Map.of(
+                REQUEST_PACKAGES,
+                List.of(Map.of(
+                        REQUEST_PACKAGE_NAME, groupArtifact,
+                        REQUEST_PACKAGE_VERSION, version))));
+        String endpoint = apiUrl.replaceAll("/$", "") + ENDPOINT_ANALYZE_MAVEN;
+
+        return HttpRequest.newBuilder()
+            .uri(URI.create(endpoint))
+            .header("Content-Type", "application/json")
+            .header("Authorization", basicAuthHeader(apiKey, ""))
+            .POST(HttpRequest.BodyPublishers.ofString(requestBody, StandardCharsets.UTF_8))
+            .build();
+    }
+
+    private static String basicAuthHeader(String username, String password) {
+        String rawCredentials = username + ":" + password;
+        String credentials = Base64.getEncoder()
+            .encodeToString((rawCredentials).getBytes(StandardCharsets.UTF_8));
+        return "Basic " + credentials;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static String extractPatchedCoords(String json) {
+        try {
+            Map<String, Object> root = (Map<String, Object>) new JsonSlurper().parseText(json);
+            List<Map<String, Object>> patches = (List<Map<String, Object>>) root.get(RESPONSE_PATCHES);
+            if (patches == null || patches.isEmpty()) {
+                return null;
+            }
+
+            Map<String, Object> patchAlias = (Map<String, Object>) patches.get(0).get(RESPONSE_PATCH_ALIAS);
+            if (patchAlias == null) {
+                return null;
+            }
+
+            String name = (String) patchAlias.get(REQUEST_PACKAGE_NAME);
+            if (name == null || name.isEmpty()) {
+                logger.warn("Root.io API returned patch alias without name: {}", patchAlias);
+                return null;
+            }
+
+            String version = (String) patchAlias.get(REQUEST_PACKAGE_VERSION);
+            if (version == null || version.isEmpty()) {
+                logger.warn("Root.io API returned patch alias without version: {}", patchAlias);
+                return null;
+            }
+
+            return name + ":" + version;
+        } catch (ClassCastException e) {
+            throw new GradleException("Root.io API returned unexpected JSON structure: " + e.getMessage(), e);
+        }
+    }
+}

@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          # Gradle 7.6.4 supports Java 8–19; 8.10 supports Java 8–23; 9.4.1 needs Java 17+
+          - java-version: '17'
+            gradle-versions: '7.6.4,8.10,9.4.1'
+          # Gradle 8.12 supports Java 8–24; 9.4.1 supports Java 8–25
+          - java-version: '21'
+            gradle-versions: '8.12,9.4.1'
+    name: Test (JDK ${{ matrix.java-version }})
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK ${{ matrix.java-version }}
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ matrix.java-version }}
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Run tests
+        run: ./gradlew test -Dtest.gradleVersions=${{ matrix.gradle-versions }}
+
+  test-jdk11:
+    runs-on: ubuntu-latest
+    name: Test (JDK 11 runtime via TestKit)
+    steps:
+      - uses: actions/checkout@v4
+
+      # Install JDK 11 first so we can capture its path before JDK 17 takes over JAVA_HOME
+      - name: Set up JDK 11
+        id: setup-jdk11
+        uses: actions/setup-java@v4
+        with:
+          java-version: '11'
+          distribution: 'temurin'
+
+      # JDK 17 becomes the active JAVA_HOME — required to run the Gradle 9.4.1 wrapper
+      - name: Set up JDK 17 (for Gradle wrapper)
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      # Gradle 9.x requires Java 17+, so only test 7.6.4 and 8.10 with the JDK 11 runtime
+      - name: Run tests with JDK 11 TestKit runtime
+        run: ./gradlew test -Dtest.gradleVersions=7.6.4,8.10 -Dtest.javaHome=${{ steps.setup-jdk11.outputs.path }}
