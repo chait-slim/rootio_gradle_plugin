@@ -7,8 +7,9 @@ import org.gradle.testkit.runner.BuildResult;
 import org.gradle.testkit.runner.GradleRunner;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -17,10 +18,12 @@ import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.stream.Stream;
 import java.util.zip.ZipOutputStream;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -45,15 +48,43 @@ class RootIoPatcherPluginFunctionalTest {
         server.stop(0);
     }
 
-    @Test
-    void substitutesDepWhenPatchAvailable() throws IOException {
+    /**
+     * Gradle versions to test against. Override with -Dtest.gradleVersions=7.6.4,8.10
+     * when running the JDK 11 CI job (Gradle 9.x requires Java 17+).
+     */
+    static Stream<String> gradleVersions() {
+        String prop = System.getProperty("test.gradleVersions");
+        if (prop != null && !prop.isBlank()) {
+            return Arrays.stream(prop.split(",")).map(String::trim).filter(s -> !s.isEmpty());
+        }
+        return Stream.of("7.6.4", "8.10", "9.4.1");
+    }
+
+    /**
+     * Base environment for all GradleRunner calls. When test.javaHome is set, it overrides
+     * JAVA_HOME so TestKit daemons use a different JDK than the one running the tests
+     * (e.g. JDK 11 daemons driven by a JDK 17 Gradle wrapper in CI).
+     */
+    private Map<String, String> baseEnv() {
+        Map<String, String> env = new HashMap<>(System.getenv());
+        String javaHome = System.getProperty("test.javaHome");
+        if (javaHome != null && !javaHome.isBlank()) {
+            env.put("JAVA_HOME", javaHome);
+        }
+        return env;
+    }
+
+    @ParameterizedTest(name = "Gradle {0}")
+    @MethodSource("gradleVersions")
+    void substitutesDepWhenPatchAvailable(String gradleVersion) throws IOException {
         setupServerResponse(200, patchResponseJson("io.test:my-lib", "1.0.0", "io.root.io.test:my-lib", "1.0.0-patched"));
         writeProjectFiles();
 
         BuildResult result = GradleRunner.create()
             .withProjectDir(projectDir)
             .withPluginClasspath()
-            .withGradleVersion("9.4.1")
+            .withGradleVersion(gradleVersion)
+            .withEnvironment(baseEnv())
             .withArguments("dependencies", "--configuration", "compileClasspath")
             .build();
 
@@ -63,15 +94,17 @@ class RootIoPatcherPluginFunctionalTest {
             "Expected original dependency to be substituted, not resolved as-is:\n" + result.getOutput());
     }
 
-    @Test
-    void doesNotSubstituteWhenNoPatchAvailable() throws IOException {
+    @ParameterizedTest(name = "Gradle {0}")
+    @MethodSource("gradleVersions")
+    void doesNotSubstituteWhenNoPatchAvailable(String gradleVersion) throws IOException {
         setupServerResponse(200, emptyPatchResponseJson());
         writeProjectFiles();
 
         BuildResult result = GradleRunner.create()
             .withProjectDir(projectDir)
             .withPluginClasspath()
-            .withGradleVersion("9.4.1")
+            .withGradleVersion(gradleVersion)
+            .withEnvironment(baseEnv())
             .withArguments("dependencies", "--configuration", "compileClasspath")
             .build();
 
@@ -81,15 +114,17 @@ class RootIoPatcherPluginFunctionalTest {
             "Expected no substitution in output:\n" + result.getOutput());
     }
 
-    @Test
-    void reasonStringAppearsInDependencyInsight() throws IOException {
+    @ParameterizedTest(name = "Gradle {0}")
+    @MethodSource("gradleVersions")
+    void reasonStringAppearsInDependencyInsight(String gradleVersion) throws IOException {
         setupServerResponse(200, patchResponseJson("io.test:my-lib", "1.0.0", "io.root.io.test:my-lib", "1.0.0-patched"));
         writeProjectFiles();
 
         BuildResult result = GradleRunner.create()
             .withProjectDir(projectDir)
             .withPluginClasspath()
-            .withGradleVersion("9.4.1")
+            .withGradleVersion(gradleVersion)
+            .withEnvironment(baseEnv())
             .withArguments("dependencyInsight", "--dependency", "io.test:my-lib",
                 "--configuration", "compileClasspath")
             .build();
@@ -98,15 +133,17 @@ class RootIoPatcherPluginFunctionalTest {
             "Expected 'Root.io security patch' reason in dependencyInsight output:\n" + result.getOutput());
     }
 
-    @Test
-    void failsBuildWhenApiReturns500() throws IOException {
+    @ParameterizedTest(name = "Gradle {0}")
+    @MethodSource("gradleVersions")
+    void failsBuildWhenApiReturns500(String gradleVersion) throws IOException {
         setupServerResponse(500, "");
         writeProjectFiles();
 
         BuildResult result = GradleRunner.create()
             .withProjectDir(projectDir)
             .withPluginClasspath()
-            .withGradleVersion("9.4.1")
+            .withGradleVersion(gradleVersion)
+            .withEnvironment(baseEnv())
             .withArguments("forceResolve")
             .buildAndFail();
 
@@ -114,8 +151,9 @@ class RootIoPatcherPluginFunctionalTest {
             "Expected error message about HTTP 500 in output:\n" + result.getOutput());
     }
 
-    @Test
-    void resolvesFromAutoRegisteredPkgRepo() throws IOException {
+    @ParameterizedTest(name = "Gradle {0}")
+    @MethodSource("gradleVersions")
+    void resolvesFromAutoRegisteredPkgRepo(String gradleVersion) throws IOException {
         // The plugin must auto-register {pkgUrl}/maven so patched artifacts resolve
         // without the user needing to add the repository manually.
         setupServerResponse(200, patchResponseJson("io.test:my-lib", "1.0.0", "io.root.io.test:my-lib", "1.0.0-patched"));
@@ -137,13 +175,13 @@ class RootIoPatcherPluginFunctionalTest {
 
             // Use a per-test Gradle user home so the module cache is fresh and Gradle
             // must contact our HTTP servers rather than using a cross-test cached artifact.
-            Map<String, String> env = new HashMap<>(System.getenv());
+            Map<String, String> env = baseEnv();
             env.put("GRADLE_USER_HOME", new File(projectDir, ".gradle-home").getAbsolutePath());
 
             BuildResult result = GradleRunner.create()
                 .withProjectDir(projectDir)
                 .withPluginClasspath()
-                .withGradleVersion("9.4.1")
+                .withGradleVersion(gradleVersion)
                 .withEnvironment(env)
                 .withArguments("forceResolve")
                 .build();
@@ -157,8 +195,9 @@ class RootIoPatcherPluginFunctionalTest {
         }
     }
 
-    @Test
-    void worksWithConfigurationCache() throws IOException {
+    @ParameterizedTest(name = "Gradle {0}")
+    @MethodSource("gradleVersions")
+    void worksWithConfigurationCache(String gradleVersion) throws IOException {
         setupServerResponse(200, patchResponseJson("io.test:my-lib", "1.0.0", "io.root.io.test:my-lib", "1.0.0-patched"));
         writeProjectFiles();
 
@@ -166,7 +205,8 @@ class RootIoPatcherPluginFunctionalTest {
         BuildResult first = GradleRunner.create()
             .withProjectDir(projectDir)
             .withPluginClasspath()
-            .withGradleVersion("9.4.1")
+            .withGradleVersion(gradleVersion)
+            .withEnvironment(baseEnv())
             .withArguments("--configuration-cache", "dependencies", "--configuration", "compileClasspath")
             .build();
 
@@ -177,7 +217,8 @@ class RootIoPatcherPluginFunctionalTest {
         BuildResult second = GradleRunner.create()
             .withProjectDir(projectDir)
             .withPluginClasspath()
-            .withGradleVersion("9.4.1")
+            .withGradleVersion(gradleVersion)
+            .withEnvironment(baseEnv())
             .withArguments("--configuration-cache", "dependencies", "--configuration", "compileClasspath")
             .build();
 
@@ -189,8 +230,9 @@ class RootIoPatcherPluginFunctionalTest {
             "Expected patched coordinates in second build output:\n" + second.getOutput());
     }
 
-    @Test
-    void resolvesApiKeyFromDotEnvFile() throws IOException {
+    @ParameterizedTest(name = "Gradle {0}")
+    @MethodSource("gradleVersions")
+    void resolvesApiKeyFromDotEnvFile(String gradleVersion) throws IOException {
         setupServerResponse(200, emptyPatchResponseJson());
 
         File repoDir = new File(projectDir, "local-repo");
@@ -207,7 +249,8 @@ class RootIoPatcherPluginFunctionalTest {
         BuildResult result = GradleRunner.create()
             .withProjectDir(projectDir)
             .withPluginClasspath()
-            .withGradleVersion("9.4.1")
+            .withGradleVersion(gradleVersion)
+            .withEnvironment(baseEnv())
             .withArguments("dependencies", "--configuration", "compileClasspath")
             .build();
 

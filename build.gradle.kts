@@ -33,4 +33,10 @@ dependencies {
 
 tasks.test {
     useJUnitPlatform()
+    // Forward test.gradleVersions and test.javaHome so functional tests can read them.
+    // test.gradleVersions: comma-separated Gradle versions to test (default: all three).
+    // test.javaHome: path to a JDK to use as JAVA_HOME inside TestKit runners (default: current JVM).
+    listOf("test.gradleVersions", "test.javaHome").forEach { key ->
+        System.getProperty(key)?.let { systemProperty(key, it) }
+    }
 }
