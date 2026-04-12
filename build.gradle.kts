@@ -24,6 +24,18 @@ repositories {
     mavenCentral()
 }
 
+publishing {
+    repositories {
+        maven {
+            url = uri(System.getenv("CODEARTIFACT_URL") ?: "")
+            credentials {
+                username = "aws"
+                password = System.getenv("CODEARTIFACT_AUTH_TOKEN")
+            }
+        }
+    }
+}
+
 dependencies {
     implementation(localGroovy())
     testImplementation(gradleTestKit())
