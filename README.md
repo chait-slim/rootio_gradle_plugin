@@ -69,8 +69,8 @@ plugins {
 Clone the repository and publish to your local Maven cache:
 
 ```bash
-git clone https://github.com/rootio/rootio-gradle-plugin.git
-cd rootio-gradle-plugin
+git clone https://github.com/rootio-avr/rootio_gradle_plugin.git
+cd rootio_gradle_plugin
 make publish-local
 ```
 
