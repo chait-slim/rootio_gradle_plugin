@@ -4,7 +4,7 @@ plugins {
 }
 
 group = "io.root"
-version = "0.1.0"
+version = project.findProperty("pluginVersion")?.toString() ?: "0.1.0"
 
 java {
     sourceCompatibility = JavaVersion.VERSION_11
