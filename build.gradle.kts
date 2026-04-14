@@ -26,11 +26,14 @@ repositories {
 
 publishing {
     repositories {
-        maven {
-            url = uri(System.getenv("CODEARTIFACT_URL") ?: "")
-            credentials {
-                username = "aws"
-                password = System.getenv("CODEARTIFACT_AUTH_TOKEN")
+        val codeartifactUrl = System.getenv("CODEARTIFACT_URL")
+        if (!codeartifactUrl.isNullOrEmpty()) {
+            maven {
+                url = uri(codeartifactUrl)
+                credentials {
+                    username = "aws"
+                    password = System.getenv("CODEARTIFACT_AUTH_TOKEN")
+                }
             }
         }
     }
