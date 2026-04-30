@@ -161,8 +161,7 @@ class RootIoPatcherPluginFunctionalTest {
         File repoDir = new File(projectDir, "local-repo");
         File pkgRepoDir = new File(projectDir, "pkg-repo");
         createFakeArtifact(repoDir, "io.test", "my-lib", "1.0.0");
-        // Plugin appends /maven to pkgUrl, so the artifact must live in that subdirectory.
-        createFakeArtifact(new File(pkgRepoDir, "maven"), "io.root.io.test", "my-lib", "1.0.0-patched");
+        createFakeArtifact(pkgRepoDir, "io.root.io.test", "my-lib", "1.0.0-patched");
 
         // Both repos served over HTTP so we can assert exactly which one served each artifact.
         try (FileServingRepo originalRepo = new FileServingRepo(repoDir);

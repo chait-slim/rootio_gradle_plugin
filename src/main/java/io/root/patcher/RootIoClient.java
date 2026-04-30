@@ -136,12 +136,14 @@ public class RootIoClient {
                         REQUEST_PACKAGE_VERSION, version))));
         String endpoint = apiUrl.replaceAll("/$", "") + ENDPOINT_ANALYZE_MAVEN;
 
-        return HttpRequest.newBuilder()
+        HttpRequest.Builder builder = HttpRequest.newBuilder()
             .uri(URI.create(endpoint))
             .header("Content-Type", "application/json")
-            .header("Authorization", basicAuthHeader(apiKey, ""))
-            .POST(HttpRequest.BodyPublishers.ofString(requestBody, StandardCharsets.UTF_8))
-            .build();
+            .POST(HttpRequest.BodyPublishers.ofString(requestBody, StandardCharsets.UTF_8));
+        if (apiKey != null && !apiKey.isEmpty()) {
+            builder.header("Authorization", basicAuthHeader(apiKey, ""));
+        }
+        return builder.build();
     }
 
     private static String basicAuthHeader(String username, String password) {

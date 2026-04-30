@@ -142,7 +142,7 @@ class RootIoClientTest {
     }
 
     @Test
-    void sendsCorrectBasicAuthHeader() {
+    void sendsCorrectBasicAuthHeaderWhenApiKeyProvided() {
         final String TEST_API_KEY = "test-api-key";
         AtomicReference<String> capturedAuth = new AtomicReference<>();
         server.createContext("/v3/analyze/maven", exchange -> {
@@ -156,6 +156,36 @@ class RootIoClientTest {
 
         String expected = "Basic " + Base64.getEncoder().encodeToString((TEST_API_KEY + ":").getBytes(StandardCharsets.UTF_8));
         assertEquals(expected, capturedAuth.get());
+    }
+
+    @Test
+    void omitsAuthHeaderWhenApiKeyIsNull() {
+        AtomicReference<String> capturedAuth = new AtomicReference<>("not-set");
+        server.createContext("/v3/analyze/maven", exchange -> {
+            capturedAuth.set(exchange.getRequestHeaders().getFirst("Authorization"));
+            byte[] bytes = JsonOutput.toJson(Map.of("patches", List.of())).getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, bytes.length);
+            try (OutputStream os = exchange.getResponseBody()) { os.write(bytes); }
+        });
+
+        noRetryClient().query("org.example:foo:1.0", "http://localhost:" + port, null);
+
+        assertNull(capturedAuth.get());
+    }
+
+    @Test
+    void omitsAuthHeaderWhenApiKeyIsEmpty() {
+        AtomicReference<String> capturedAuth = new AtomicReference<>("not-set");
+        server.createContext("/v3/analyze/maven", exchange -> {
+            capturedAuth.set(exchange.getRequestHeaders().getFirst("Authorization"));
+            byte[] bytes = JsonOutput.toJson(Map.of("patches", List.of())).getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, bytes.length);
+            try (OutputStream os = exchange.getResponseBody()) { os.write(bytes); }
+        });
+
+        noRetryClient().query("org.example:foo:1.0", "http://localhost:" + port, "");
+
+        assertNull(capturedAuth.get());
     }
 
     @Test

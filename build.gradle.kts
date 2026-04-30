@@ -4,7 +4,7 @@ plugins {
 }
 
 group = "io.root"
-version = project.findProperty("pluginVersion")?.toString() ?: "0.1.0"
+version = project.findProperty("pluginVersion")?.toString() ?: "0.2.0"
 
 java {
     sourceCompatibility = JavaVersion.VERSION_11
@@ -26,13 +26,13 @@ repositories {
 
 publishing {
     repositories {
-        val codeartifactUrl = System.getenv("CODEARTIFACT_URL")
-        if (!codeartifactUrl.isNullOrEmpty()) {
+        val artifactoryUrl = System.getenv("ARTIFACTORY_URL")
+        if (!artifactoryUrl.isNullOrEmpty()) {
             maven {
-                url = uri(codeartifactUrl)
+                url = uri(artifactoryUrl)
                 credentials {
-                    username = "aws"
-                    password = System.getenv("CODEARTIFACT_AUTH_TOKEN")
+                    username = System.getenv("ARTIFACTORY_USER")
+                    password = System.getenv("ARTIFACTORY_PASSWORD")
                 }
             }
         }

@@ -18,8 +18,20 @@ public abstract class RootIoExtension {
     /** Base delay in milliseconds for exponential backoff between retries. Default: 1000. */
     public abstract Property<Long> getRetryBaseDelayMs();
 
-    /** Root.io package registry base URL. Default: <a href="https://pkg.root.io">...</a> */
+    /** Root.io package registry Maven repository URL. Default: <a href="https://pkg.root.io/maven">...</a> */
     public abstract Property<String> getPkgUrl();
+
+    /**
+     * Username for the pkg Maven repository. When set together with pkgPassword,
+     * these credentials are used instead of the Root.io API key.
+     */
+    public abstract Property<String> getPkgUsername();
+
+    /**
+     * Password for the pkg Maven repository. When set together with pkgUsername,
+     * these credentials are used instead of the Root.io API key.
+     */
+    public abstract Property<String> getPkgPassword();
 
     /** Allow plain HTTP for the pkg repository. Default: false. Enable only for local/test setups. */
     public abstract Property<Boolean> getAllowInsecurePkgRepo();

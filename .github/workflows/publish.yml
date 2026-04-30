@@ -30,9 +30,9 @@ jobs:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ secrets.AWS_REGION }}
 
-      - name: Get CodeArtifact auth token
+      - name: Get auth token
         run: |
-          echo "CODEARTIFACT_AUTH_TOKEN=$(aws codeartifact get-authorization-token \
+          echo "ARTIFACTORY_PASSWORD=$(aws codeartifact get-authorization-token \
             --domain root \
             --domain-owner ${{ secrets.AWS_ACCOUNT_ID }} \
             --region ${{ secrets.AWS_REGION }} \
@@ -40,7 +40,8 @@ jobs:
 
       - name: Publish
         env:
-          CODEARTIFACT_URL: https://root-${{ secrets.AWS_ACCOUNT_ID }}.d.codeartifact.${{ secrets.AWS_REGION }}.amazonaws.com/maven/gradle-plugins/
+          ARTIFACTORY_URL: https://root-${{ secrets.AWS_ACCOUNT_ID }}.d.codeartifact.${{ secrets.AWS_REGION }}.amazonaws.com/maven/gradle-plugins/
+          ARTIFACTORY_USER: aws
         run: |
           VERSION="${{ github.event.release.tag_name }}"
           ./gradlew publish -PpluginVersion="${VERSION#v}"
