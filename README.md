@@ -13,7 +13,7 @@ When a Gradle build resolves dependencies, the plugin:
 1. **Intercepts dependency resolution** for every resolvable configuration in your project
 2. **Queries the Root.io API** to check whether a patched version of each dependency exists
 3. **Substitutes vulnerable coordinates** with patched ones using Gradle's `ResolutionStrategy.eachDependency` mechanism
-4. **Registers the Root.io Maven registry** (`https://pkg.root.io/maven`) as a repository so patched artifacts resolve automatically
+4. **Registers the pkg Maven repository** (default: `https://pkg.root.io/maven`) as a repository so patched artifacts resolve automatically
 
 API responses are cached locally under `.gradle/rootio-cache/` (SHA-1-keyed JSON files) to avoid repeated network calls. The cache TTL defaults to 24 hours and is configurable.
 
@@ -166,14 +166,16 @@ Use this when the key is already managed outside of source control (e.g. injecte
 
 All settings are optional beyond the API key. Configure them inside the `rootio {}` block:
 
-| Property           | Default               | Description                                                                                                                    |
-|--------------------|-----------------------|--------------------------------------------------------------------------------------------------------------------------------|
-| `apiKey`           | —                     | Your Root.io API key                                                                                                           |
-| `apiUrl`           | `https://api.root.io` | Root.io API base URL                                                                                                           |
-| `pkgUrl`           | `https://pkg.root.io` | Root.io package registry base URL                                                                                              |
-| `ttlHours`         | `24`                  | Hours to cache API responses locally. Set to `0` to disable caching.                                                           |
-| `maxRetries`       | `3`                   | Max retry attempts on transient failures (5xx, network errors). Set to `0` to disable retries.                                 |
-| `retryBaseDelayMs` | `1000`                | Base delay in milliseconds for exponential backoff between retries. Delay doubles on each attempt (1000ms, 2000ms, 4000ms, …). |
+| Property           | Default                      | Description                                                                                                                    |
+|--------------------|------------------------------|--------------------------------------------------------------------------------------------------------------------------------|
+| `apiKey`           | —                            | Root.io API key, used to authenticate against the `/v3/analyze` API and as a fallback password for the default `pkg.root.io` Maven repository |
+| `apiUrl`           | `https://api.root.io`        | Root.io API base URL                                                                                                           |
+| `pkgUrl`           | `https://pkg.root.io/maven`  | Maven repository URL from which patched artifacts are resolved. Override this when routing through a proxy (see below).        |
+| `pkgUsername`      | —                            | Username for the pkg Maven repository. When set together with `pkgPassword`, these take precedence over `apiKey` for repository authentication. |
+| `pkgPassword`      | —                            | Password for the pkg Maven repository. When set together with `pkgUsername`, these take precedence over `apiKey` for repository authentication. |
+| `ttlHours`         | `24`                         | Hours to cache API responses locally. Set to `0` to disable caching.                                                           |
+| `maxRetries`       | `3`                          | Max retry attempts on transient failures (5xx, network errors). Set to `0` to disable retries.                                 |
+| `retryBaseDelayMs` | `1000`                       | Base delay in milliseconds for exponential backoff between retries. Delay doubles on each attempt (1000ms, 2000ms, 4000ms, …). |
 
 Example — extend the cache TTL and adjust retry behavior:
 
@@ -184,6 +186,24 @@ rootio {
     retryBaseDelayMs.set(500)
 }
 ```
+
+### Using a Maven Repository Proxy (e.g. JFrog Artifactory)
+
+If your organization routes all artifact traffic through an internal proxy such as JFrog Artifactory, you can point the plugin at your proxy instead of `pkg.root.io` directly.
+
+**In JFrog**, create a remote Maven repository with the remote URL set to `https://pkg.root.io/maven` and configure it with your Root.io API key as the upstream password. JFrog will handle authentication to `pkg.root.io` on behalf of your builds — individual developers never need a Root.io API key.
+
+**In your `build.gradle.kts`**, set `pkgUrl` to your JFrog repository URL and supply JFrog credentials via `pkgUsername`/`pkgPassword`:
+
+```kotlin
+rootio {
+    pkgUrl.set("https://your-instance.jfrog.io/artifactory/your-remote-repo")
+    pkgUsername.set(providers.environmentVariable("JFROG_USERNAME").get())
+    pkgPassword.set(providers.environmentVariable("JFROG_TOKEN").get())
+}
+```
+
+> **Note:** `pkgUsername`/`pkgPassword` control only where patched artifacts are downloaded from.
 
 ## Local Development
 
