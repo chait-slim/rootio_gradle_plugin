@@ -1,9 +1,11 @@
 package io.root.patcher;
 
+import org.gradle.api.Action;
 import org.gradle.api.Plugin;
 import org.gradle.api.Project;
 import org.gradle.api.artifacts.DependencyResolveDetails;
 import org.gradle.api.artifacts.ModuleVersionSelector;
+import org.gradle.api.artifacts.repositories.PasswordCredentials;
 import org.gradle.api.logging.Logger;
 import org.gradle.api.logging.Logging;
 import org.gradle.api.provider.Provider;
@@ -12,7 +14,6 @@ import org.gradle.authentication.http.BasicAuthentication;
 public class RootIoPatcherPlugin implements Plugin<Project> {
     private static final Logger logger = Logging.getLogger(RootIoPatcherPlugin.class);
     private static final String MAVEN_REPO_NAME = "Root.io patches";
-    private static final String MAVEN_REPO_USERNAME = "token";
     private static final ApiKeyResolver apiKeyResolver = new ApiKeyResolver();
 
     @Override
@@ -49,47 +50,17 @@ public class RootIoPatcherPlugin implements Plugin<Project> {
     // are fully configured by the time we read them.
     private static void registerRootMavenRepo(Project p, RootIoExtension extension) {
         String pkgUrl = extension.getPkgUrl().get().replaceAll("/$", "");
-        boolean isHttpRepo = pkgUrl.startsWith("http://") || pkgUrl.startsWith("https://");
 
-        // Determine credentials for the pkg repo:
-        // 1. Explicit pkgUsername + pkgPassword take precedence (e.g. JFrog credentials)
-        // 2. Fall back to apiKey (Root.io convention: username="token", password=apiKey)
-        // 3. If neither, register without credentials (anonymous or externally managed)
-        String repoUsername = null;
-        String repoPassword = null;
-        if (isHttpRepo) {
-            String pkgUsername = extension.getPkgUsername().getOrNull();
-            String pkgPassword = extension.getPkgPassword().getOrNull();
-            if (pkgUsername != null && !pkgUsername.isEmpty() && pkgPassword != null && !pkgPassword.isEmpty()) {
-                repoUsername = pkgUsername;
-                repoPassword = pkgPassword;
-            } else {
-                String apiKey = extension.getApiKey().getOrNull();
-                if (apiKey == null || apiKey.isEmpty()) {
-                    apiKey = apiKeyResolver.resolve(p.getRootDir()).orElse(null);
-                }
-                if (apiKey != null && !apiKey.isEmpty()) {
-                    repoUsername = MAVEN_REPO_USERNAME;
-                    repoPassword = apiKey;
-                }
-            }
-        }
+        Action<? super PasswordCredentials> credsAction =
+            PkgRepoCredentialResolver.resolve(extension, apiKeyResolver, p.getRootDir());
 
-        logger.info("Registering repo: {} (user: {})", pkgUrl, repoUsername != null ? repoUsername : "none");
-        final String finalUsername = repoUsername;
-        final String finalPassword = repoPassword;
+        logger.info("Registering repo: {} (credentials: {})", pkgUrl, credsAction != null ? "yes" : "none");
         p.getRepositories().maven(repo -> {
             repo.setName(MAVEN_REPO_NAME);
             repo.setUrl(pkgUrl);
-            // Credentials only apply to HTTP(S) — file:// repos (e.g. in tests) reject them.
-            // BasicAuthentication forces preemptive auth so credentials are sent on the
-            // first request. Without it, Gradle waits for a 401 challenge, but artrepo
-            // returns 403 directly for unauthenticated requests.
-            if (isHttpRepo && finalUsername != null) {
-                repo.credentials(creds -> {
-                    creds.setUsername(finalUsername);
-                    creds.setPassword(finalPassword);
-                });
+
+            if (credsAction != null) {
+                repo.credentials(credsAction);
                 repo.authentication(auth -> auth.create("basic", BasicAuthentication.class));
             }
             if (extension.getAllowInsecurePkgRepo().get()) {
