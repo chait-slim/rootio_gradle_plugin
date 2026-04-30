@@ -35,7 +35,7 @@ public abstract class RootIoValueSource implements ValueSource<String, RootIoVal
             () -> client.query(
                 p.getCoords().get(),
                 p.getApiUrl().get(),
-                p.getApiKey().get()
+                p.getApiKey().getOrNull()
             )
         );
     }
