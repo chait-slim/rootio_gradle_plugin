@@ -19,7 +19,7 @@ public class RootIoPatcherPlugin implements Plugin<Project> {
     public void apply(Project project) {
         RootIoExtension extension = project.getExtensions().create("rootio", RootIoExtension.class);
         extension.getApiUrl().convention(envOrDefault("ROOTIO_API_URL", "https://api.root.io"));
-        extension.getPkgUrl().convention(envOrDefault("ROOTIO_PKG_URL", "https://pkg.root.io"));
+        extension.getPkgUrl().convention(envOrDefault("ROOTIO_PKG_URL", "https://pkg.root.io/maven"));
         extension.getTtlHours().convention(24L);
         extension.getMaxRetries().convention(3);
         extension.getRetryBaseDelayMs().convention(1000L);
@@ -48,24 +48,47 @@ public class RootIoPatcherPlugin implements Plugin<Project> {
     // without users needing to add it manually. Done in afterEvaluate so apiKey/pkgUrl
     // are fully configured by the time we read them.
     private static void registerRootMavenRepo(Project p, RootIoExtension extension) {
-        String pkgBase = extension.getPkgUrl().get().replaceAll("/$", "");
-        boolean isHttpRepo = pkgBase.startsWith("http://") || pkgBase.startsWith("https://");
-        String apiKey = isHttpRepo
-            ? apiKeyResolver.resolveOrThrow(extension.getApiKey().getOrNull(), p.getRootDir())
-            : null;
+        String pkgUrl = extension.getPkgUrl().get().replaceAll("/$", "");
+        boolean isHttpRepo = pkgUrl.startsWith("http://") || pkgUrl.startsWith("https://");
 
-        logger.info("Registering repo: {}/maven (apiKey: {})", pkgBase, maskApiKey(apiKey));
+        // Determine credentials for the pkg repo:
+        // 1. Explicit pkgUsername + pkgPassword take precedence (e.g. JFrog credentials)
+        // 2. Fall back to apiKey (Root.io convention: username="token", password=apiKey)
+        // 3. If neither, register without credentials (anonymous or externally managed)
+        String repoUsername = null;
+        String repoPassword = null;
+        if (isHttpRepo) {
+            String pkgUsername = extension.getPkgUsername().getOrNull();
+            String pkgPassword = extension.getPkgPassword().getOrNull();
+            if (pkgUsername != null && !pkgUsername.isEmpty() && pkgPassword != null && !pkgPassword.isEmpty()) {
+                repoUsername = pkgUsername;
+                repoPassword = pkgPassword;
+            } else {
+                String apiKey = extension.getApiKey().getOrNull();
+                if (apiKey == null || apiKey.isEmpty()) {
+                    apiKey = apiKeyResolver.resolve(p.getRootDir()).orElse(null);
+                }
+                if (apiKey != null && !apiKey.isEmpty()) {
+                    repoUsername = MAVEN_REPO_USERNAME;
+                    repoPassword = apiKey;
+                }
+            }
+        }
+
+        logger.info("Registering repo: {} (user: {})", pkgUrl, repoUsername != null ? repoUsername : "none");
+        final String finalUsername = repoUsername;
+        final String finalPassword = repoPassword;
         p.getRepositories().maven(repo -> {
             repo.setName(MAVEN_REPO_NAME);
-            repo.setUrl(pkgBase + "/maven");
+            repo.setUrl(pkgUrl);
             // Credentials only apply to HTTP(S) — file:// repos (e.g. in tests) reject them.
             // BasicAuthentication forces preemptive auth so credentials are sent on the
             // first request. Without it, Gradle waits for a 401 challenge, but artrepo
             // returns 403 directly for unauthenticated requests.
-            if (isHttpRepo) {
+            if (isHttpRepo && finalUsername != null) {
                 repo.credentials(creds -> {
-                    creds.setUsername(MAVEN_REPO_USERNAME);
-                    creds.setPassword(apiKey);
+                    creds.setUsername(finalUsername);
+                    creds.setPassword(finalPassword);
                 });
                 repo.authentication(auth -> auth.create("basic", BasicAuthentication.class));
             }
