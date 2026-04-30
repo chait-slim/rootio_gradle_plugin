@@ -95,6 +95,69 @@ plugins {
 }
 ```
 
+### Option C: Private JFrog Artifactory
+
+You can publish the plugin to your own JFrog Artifactory instance and consume it from there — useful when you want full control over the registry or need to keep builds air-gapped from the public internet.
+
+#### Publishing
+
+Set the following environment variables and run `make publish`:
+
+```bash
+export ARTIFACTORY_URL=https://your-instance.jfrog.io/artifactory/your-repo
+export ARTIFACTORY_USER=your-username
+export ARTIFACTORY_PASSWORD=your-api-key
+make publish
+```
+
+This publishes both the plugin JAR and the Gradle plugin marker artifact (`io.root.patcher:io.root.patcher.gradle.plugin`) that Gradle requires for `plugins {}` block resolution.
+
+#### Consuming
+
+Add the Artifactory repository to `pluginManagement` in your `settings.gradle.kts`:
+
+**`settings.gradle.kts`**
+
+```kotlin
+pluginManagement {
+    repositories {
+        maven {
+            url = uri("https://your-instance.jfrog.io/artifactory/your-repo")
+            credentials {
+                username = providers.environmentVariable("JFROG_USERNAME").orNull
+                password = providers.environmentVariable("JFROG_TOKEN").orNull
+            }
+        }
+    }
+}
+```
+
+**`build.gradle.kts`**
+
+```kotlin
+plugins {
+    id("io.root.patcher") version "0.2.0"
+}
+```
+
+#### Using JFrog as a Proxy for pkg.root.io
+
+If your organization routes all artifact traffic through an internal proxy, you can also point the plugin at your JFrog instance for resolving patched artifacts — instead of reaching `pkg.root.io` directly.
+
+**In JFrog**, create a remote Maven repository with the remote URL set to `https://pkg.root.io/maven` and configure it with your Root.io API key as the upstream password. JFrog will handle authentication to `pkg.root.io` on behalf of your builds — individual developers never need a Root.io API key.
+
+**In your `build.gradle.kts`**, set `pkgUrl` to your JFrog repository URL and supply JFrog credentials via `pkgUsername`/`pkgPassword`:
+
+```kotlin
+rootio {
+    pkgUrl.set("https://your-instance.jfrog.io/artifactory/your-remote-repo")
+    pkgUsername.set(providers.environmentVariable("JFROG_USERNAME").get())
+    pkgPassword.set(providers.environmentVariable("JFROG_TOKEN").get())
+}
+```
+
+> **Note:** `pkgUsername`/`pkgPassword` control only where patched artifacts are downloaded from.
+
 ### Multi-project Builds
 
 Apply the plugin once in the root `build.gradle.kts`:
@@ -186,24 +249,6 @@ rootio {
     retryBaseDelayMs.set(500)
 }
 ```
-
-### Using a Maven Repository Proxy (e.g. JFrog Artifactory)
-
-If your organization routes all artifact traffic through an internal proxy such as JFrog Artifactory, you can point the plugin at your proxy instead of `pkg.root.io` directly.
-
-**In JFrog**, create a remote Maven repository with the remote URL set to `https://pkg.root.io/maven` and configure it with your Root.io API key as the upstream password. JFrog will handle authentication to `pkg.root.io` on behalf of your builds — individual developers never need a Root.io API key.
-
-**In your `build.gradle.kts`**, set `pkgUrl` to your JFrog repository URL and supply JFrog credentials via `pkgUsername`/`pkgPassword`:
-
-```kotlin
-rootio {
-    pkgUrl.set("https://your-instance.jfrog.io/artifactory/your-remote-repo")
-    pkgUsername.set(providers.environmentVariable("JFROG_USERNAME").get())
-    pkgPassword.set(providers.environmentVariable("JFROG_TOKEN").get())
-}
-```
-
-> **Note:** `pkgUsername`/`pkgPassword` control only where patched artifacts are downloaded from.
 
 ## Local Development
 
