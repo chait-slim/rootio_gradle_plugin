@@ -11,6 +11,7 @@ import org.gradle.api.logging.Logging;
 import org.gradle.api.provider.Provider;
 import org.gradle.authentication.http.BasicAuthentication;
 
+/** Gradle plugin that intercepts dependency resolution and substitutes vulnerable artifacts with Root.io patches. */
 public class RootIoPatcherPlugin implements Plugin<Project> {
     private static final Logger logger = Logging.getLogger(RootIoPatcherPlugin.class);
     private static final String MAVEN_REPO_NAME = "Root.io patches";

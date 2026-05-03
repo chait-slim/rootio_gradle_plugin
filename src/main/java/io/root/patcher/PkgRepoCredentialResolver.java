@@ -36,6 +36,7 @@ public class PkgRepoCredentialResolver {
      *                       is HTTP(S) — file:// repos never get credentials
      * @param apiKeyResolver used to resolve the apiKey from env/system-property/.env as a fallback
      * @param rootDir        root directory passed to {@code apiKeyResolver}
+     * @return an {@link Action} that configures credentials, or {@code null} for anonymous/file repos
      */
     @Nullable
     public static Action<? super PasswordCredentials> resolve(

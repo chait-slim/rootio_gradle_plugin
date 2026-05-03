@@ -8,17 +8,29 @@ import javax.annotation.Nullable;
 import java.io.File;
 import java.util.concurrent.atomic.AtomicReference;
 
+/**
+ * Gradle {@link ValueSource} that resolves a patched dependency coordinate for a given GAV string,
+ * using a local cache backed by {@link DepCache} and the Root.io API via {@link RootIoClient}.
+ */
 public abstract class RootIoValueSource implements ValueSource<String, RootIoValueSource.Parameters> {
 
     private static final AtomicReference<RootIoClient> clientRef = new AtomicReference<>();
 
+    /** Input parameters for {@link RootIoValueSource}. */
     public interface Parameters extends ValueSourceParameters {
+        /** @return Maven GAV string of the dependency to look up */
         Property<String> getCoords();
+        /** @return Root.io API base URL */
         Property<String> getApiUrl();
+        /** @return Root.io API key */
         Property<String> getApiKey();
+        /** @return absolute path to the project root directory, used to locate the cache */
         Property<String> getRootDirPath();
+        /** @return cache TTL in hours */
         Property<Long> getTtlHours();
+        /** @return maximum number of retry attempts */
         Property<Integer> getMaxRetries();
+        /** @return base delay in milliseconds for exponential backoff */
         Property<Long> getRetryBaseDelayMs();
     }
 
