@@ -1,5 +1,5 @@
 plugins {
-    id("io.root.patcher") version "0.1.0" apply false
+    id("io.root.patcher") version "0.2.0" apply false
 }
 
 subprojects {
