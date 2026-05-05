@@ -1,6 +1,6 @@
 plugins {
     java
-    id("io.root.patcher") version "0.1.0"
+    id("io.root.patcher") version "0.2.0"
 }
 
 group = "com.example"

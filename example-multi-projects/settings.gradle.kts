@@ -1,12 +1,6 @@
 pluginManagement {
     repositories {
-        maven {
-            url = uri("https://pkg.root.io/gradle-plugins")
-            credentials {
-                username = "token"
-                password = providers.environmentVariable("ROOTIO_API_KEY").get()
-            }
-        }
+        mavenLocal()
         gradlePluginPortal()
     }
 }

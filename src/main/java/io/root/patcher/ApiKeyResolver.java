@@ -9,12 +9,14 @@ import java.nio.file.Files;
 import java.util.Optional;
 import java.util.function.Function;
 
+/** Resolves the Root.io API key from the environment, JVM system properties, or a {@code .env} file. */
 public class ApiKeyResolver {
     private static final String ROOTIO_API_KEY = "ROOTIO_API_KEY";
     private static final Logger logger = Logging.getLogger(ApiKeyResolver.class);
 
     private final Function<String, String> envVarReader;
 
+    /** Creates a resolver that reads environment variables via {@link System#getenv}. */
     public ApiKeyResolver() {
         this(System::getenv);
     }
@@ -26,8 +28,11 @@ public class ApiKeyResolver {
 
     /**
      * Resolves the Root.io API key from available sources in ascending priority order:
-     * .env file < system property < environment variable.
+     * .env file &lt; system property &lt; environment variable.
      * Returns Optional.empty() if no source provides a non-empty value.
+     *
+     * @param projectRootDir project root directory; used to locate the {@code .env} file
+     * @return the resolved API key, or {@link java.util.Optional#empty()} if none found
      */
     public Optional<String> resolve(File projectRootDir) {
         String fromEnvVar = envVarReader.apply(ROOTIO_API_KEY);

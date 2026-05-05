@@ -15,6 +15,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.function.Supplier;
 
+/** SHA-1-keyed JSON file cache for Root.io API responses, stored under {@code .gradle/rootio-cache/}. */
 public class DepCache {
 
     private static final Logger logger = Logging.getLogger(ApiKeyResolver.class);

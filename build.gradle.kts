@@ -1,6 +1,7 @@
 plugins {
     `java-gradle-plugin`
     `maven-publish`
+    id("com.gradle.plugin-publish") version "2.1.1"
 }
 
 group = "io.root"
@@ -12,10 +13,15 @@ java {
 }
 
 gradlePlugin {
+    website = "https://docs.root.io/rlc/java#gradle"
+    vcsUrl = "https://github.com/rootio-avr/rootio_gradle_plugin"
     plugins {
         create("rootIoPatcher") {
             id = "io.root.patcher"
             implementationClass = "io.root.patcher.RootIoPatcherPlugin"
+            displayName = "Root.io Patcher"
+            description = "Automatically patches vulnerable Java dependencies with secure versions from the Root.io registry — no changes to your dependency declarations required."
+            tags = listOf("security", "dependencies", "vulnerability", "patching")
         }
     }
 }

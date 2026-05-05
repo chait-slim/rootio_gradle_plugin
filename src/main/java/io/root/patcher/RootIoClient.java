@@ -18,6 +18,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.IntToLongFunction;
 
+/** HTTP client for querying the Root.io {@code /v3/analyze/maven} API, with exponential backoff retries. */
 public class RootIoClient {
     private static final Logger logger = Logging.getLogger(RootIoClient.class);
 
@@ -25,6 +26,12 @@ public class RootIoClient {
     private final int maxRetries;
     private final IntToLongFunction retryDelayMs;
 
+    /**
+     * Creates a client with the given retry settings and exponential backoff.
+     *
+     * @param maxRetries   maximum number of retry attempts after the initial request
+     * @param baseDelayMs  base delay in milliseconds; doubles on each subsequent attempt
+     */
     public RootIoClient(int maxRetries, long baseDelayMs) {
         this(
             // Shared across all query() calls within a build — reuses TLS connections

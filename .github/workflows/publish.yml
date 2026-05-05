@@ -38,10 +38,18 @@ jobs:
             --region ${{ secrets.AWS_REGION }} \
             --query authorizationToken --output text)" >> "$GITHUB_ENV"
 
-      - name: Publish
+      - name: Publish to CodeArtifact
         env:
           ARTIFACTORY_URL: https://root-${{ secrets.AWS_ACCOUNT_ID }}.d.codeartifact.${{ secrets.AWS_REGION }}.amazonaws.com/maven/gradle-plugins/
           ARTIFACTORY_USER: aws
         run: |
           VERSION="${{ github.event.release.tag_name }}"
           ./gradlew publish -PpluginVersion="${VERSION#v}"
+
+      - name: Publish to Gradle Plugin Portal
+        env:
+          GRADLE_PUBLISH_KEY: ${{ secrets.GRADLE_PUBLISH_KEY }}
+          GRADLE_PUBLISH_SECRET: ${{ secrets.GRADLE_PUBLISH_SECRET }}
+        run: |
+          VERSION="${{ github.event.release.tag_name }}"
+          ./gradlew publishPlugins -PpluginVersion="${VERSION#v}"

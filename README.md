@@ -35,7 +35,31 @@ If Root.io has a patch for that version, Gradle resolves a secure drop-in replac
 
 ## Installation
 
-### Option A: Root.io Maven Repository
+### Option A: Gradle Plugin Portal
+
+The plugin is published to the [Gradle Plugin Portal](https://plugins.gradle.org/plugin/io.root.patcher).
+
+**`build.gradle.kts`**
+
+```kotlin
+plugins {
+    id("io.root.patcher") version "0.2.0"
+}
+```
+
+If your `pluginManagement` block explicitly lists repositories, make sure `gradlePluginPortal()` is included:
+
+**`settings.gradle.kts`**
+
+```kotlin
+pluginManagement {
+    repositories {
+        gradlePluginPortal()
+    }
+}
+```
+
+### Option B: Root.io Maven Repository
 
 The plugin is published to Root.io's Maven repository. Add the repository to your `settings.gradle.kts` and apply the plugin:
 
@@ -60,11 +84,11 @@ pluginManagement {
 
 ```kotlin
 plugins {
-    id("io.root.patcher") version "0.1.0"
+    id("io.root.patcher") version "0.2.0"
 }
 ```
 
-### Option B: Build Locally (mavenLocal)
+### Option C: Build Locally (mavenLocal)
 
 Clone the repository and publish to your local Maven cache:
 
@@ -95,7 +119,7 @@ plugins {
 }
 ```
 
-### Option C: Private JFrog Artifactory
+### Option D: Private JFrog Artifactory
 
 You can publish the plugin to your own JFrog Artifactory instance and consume it from there — useful when you want full control over the registry or need to keep builds air-gapped from the public internet.
 
@@ -164,7 +188,7 @@ Apply the plugin once in the root `build.gradle.kts`:
 
 ```kotlin
 plugins {
-    id("io.root.patcher") version "0.1.0" apply false
+    id("io.root.patcher") version "0.2.0" apply false
 }
 
 subprojects {
@@ -270,11 +294,11 @@ To test the plugin in another local project before publishing:
 make publish-local
 ```
 
-Then reference it from your local project by adding `mavenLocal()` to your `pluginManagement` repositories as shown in [Option B](#option-b-build-locally-mavenlocal) above.
+Then reference it from your local project by adding `mavenLocal()` to your `pluginManagement` repositories as shown in [Option C](#option-c-build-locally-mavenlocal) above.
 
 ## Examples
 
-The repository includes two example projects under `example/` and `example-multi-projects/` that demonstrate single-project and multi-project setups respectively. Both use `mavenLocal()` and expect the plugin to be published locally first (`make publish-local`).
+The repository includes two example projects under `example/` and `example-multi-projects/` that demonstrate single-project and multi-project setups respectively. Both resolve the plugin from the Gradle Plugin Portal by default. To test against a locally-built version, run `make publish-local` and add `mavenLocal()` as the first entry in the `pluginManagement.repositories` block of the example's `settings.gradle.kts`.
 
 ## Contributing
 
