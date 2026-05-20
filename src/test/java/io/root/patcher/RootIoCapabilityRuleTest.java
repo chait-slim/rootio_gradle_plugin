@@ -1,9 +1,20 @@
 package io.root.patcher;
 
 import org.gradle.api.Project;
+import org.gradle.api.artifacts.Configuration;
+import org.gradle.api.artifacts.ModuleVersionIdentifier;
 import org.gradle.testfixtures.ProjectBuilder;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.util.LinkedHashSet;
+import java.util.Set;
+import java.util.zip.ZipOutputStream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -26,13 +37,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class RootIoCapabilityRuleTest {
 
     private Project project;
-    private java.io.File repoDir;
+    private File repoDir;
 
     @BeforeEach
-    void setUp(@org.junit.jupiter.api.io.TempDir java.io.File tempDir) throws java.io.IOException {
+    void setUp(@TempDir File tempDir) throws IOException {
         project = ProjectBuilder.builder().withProjectDir(tempDir).build();
         project.getPluginManager().apply("java");
-        repoDir = new java.io.File(tempDir, "local-repo");
+        repoDir = new File(tempDir, "local-repo");
         project.getRepositories().maven(repo -> repo.setUrl(repoDir.toURI()));
         project.getDependencies().getComponents().all(RootIoCapabilityRule.class);
     }
@@ -43,7 +54,7 @@ class RootIoCapabilityRuleTest {
         project.getDependencies().add("implementation",
             "io.root.ch.qos.logback:logback-core:1.1.3-root.io.1");
 
-        java.util.Set<String> caps = collectCapabilityCoords(
+        Set<String> caps = collectCapabilityCoords(
             "io.root.ch.qos.logback", "logback-core", "1.1.3-root.io.1");
 
         assertTrue(caps.contains("ch.qos.logback:logback-core:1.1.3"),
@@ -56,7 +67,7 @@ class RootIoCapabilityRuleTest {
         project.getDependencies().add("implementation",
             "io.root.org.springframework.boot:spring-boot-starter:3.3.4-root.io.10");
 
-        java.util.Set<String> caps = collectCapabilityCoords(
+        Set<String> caps = collectCapabilityCoords(
             "io.root.org.springframework.boot", "spring-boot-starter", "3.3.4-root.io.10");
 
         assertTrue(caps.contains("org.springframework.boot:spring-boot-starter:3.3.4"),
@@ -68,11 +79,11 @@ class RootIoCapabilityRuleTest {
         plantFakeArtifact("org.example", "my-lib", "1.0.0");
         project.getDependencies().add("implementation", "org.example:my-lib:1.0.0");
 
-        java.util.Set<String> caps = collectCapabilityCoords(
+        Set<String> caps = collectCapabilityCoords(
             "org.example", "my-lib", "1.0.0");
 
         // Only the implicit default capability — no injected one.
-        assertEquals(java.util.Set.of("org.example:my-lib:1.0.0"), caps,
+        assertEquals(Set.of("org.example:my-lib:1.0.0"), caps,
             "Expected only the default capability, got: " + caps);
     }
 
@@ -81,7 +92,7 @@ class RootIoCapabilityRuleTest {
         plantFakeArtifact("io.root.foo", "bar", "1.0.0");
         project.getDependencies().add("implementation", "io.root.foo:bar:1.0.0");
 
-        java.util.Set<String> caps = collectCapabilityCoords("io.root.foo", "bar", "1.0.0");
+        Set<String> caps = collectCapabilityCoords("io.root.foo", "bar", "1.0.0");
 
         assertFalse(caps.stream().anyMatch(c -> c.startsWith("foo:bar:")),
             "Expected NO original-coord capability injected (no -root.io.N suffix), got: " + caps);
@@ -93,7 +104,7 @@ class RootIoCapabilityRuleTest {
         project.getDependencies().add("implementation",
             "io.root.ch.qos.logback:logback-core:1.1.3-final-root.io.1");
 
-        java.util.Set<String> caps = collectCapabilityCoords(
+        Set<String> caps = collectCapabilityCoords(
             "io.root.ch.qos.logback", "logback-core", "1.1.3-final-root.io.1");
 
         assertTrue(caps.contains("ch.qos.logback:logback-core:1.1.3-final"),
@@ -106,7 +117,7 @@ class RootIoCapabilityRuleTest {
         project.getDependencies().add("implementation",
             "io.root.ch.qos.logback:logback-core:1.1.3-root.io.10");
 
-        java.util.Set<String> caps = collectCapabilityCoords(
+        Set<String> caps = collectCapabilityCoords(
             "io.root.ch.qos.logback", "logback-core", "1.1.3-root.io.10");
 
         assertTrue(caps.contains("ch.qos.logback:logback-core:1.1.3"),
@@ -119,19 +130,17 @@ class RootIoCapabilityRuleTest {
      * Drops a minimal POM + empty JAR into the local file repo so Gradle's resolver can
      * fetch the artifact and run the metadata rule against it.
      */
-    private void plantFakeArtifact(String group, String artifact, String version) throws java.io.IOException {
-        java.io.File dir = new java.io.File(repoDir,
-            group.replace('.', '/') + "/" + artifact + "/" + version);
+    private void plantFakeArtifact(String group, String artifact, String version) throws IOException {
+        File dir = new File(repoDir, group.replace('.', '/') + "/" + artifact + "/" + version);
         dir.mkdirs();
         String pom = "<project><modelVersion>4.0.0</modelVersion>"
             + "<groupId>" + group + "</groupId>"
             + "<artifactId>" + artifact + "</artifactId>"
             + "<version>" + version + "</version>"
             + "<packaging>jar</packaging></project>";
-        java.nio.file.Files.writeString(
-            new java.io.File(dir, artifact + "-" + version + ".pom").toPath(), pom);
-        try (java.util.zip.ZipOutputStream zos = new java.util.zip.ZipOutputStream(
-                new java.io.FileOutputStream(new java.io.File(dir, artifact + "-" + version + ".jar")))) {
+        Files.writeString(new File(dir, artifact + "-" + version + ".pom").toPath(), pom);
+        try (ZipOutputStream zos = new ZipOutputStream(
+                new FileOutputStream(new File(dir, artifact + "-" + version + ".jar")))) {
             // empty zip is a valid jar
         }
     }
@@ -141,20 +150,18 @@ class RootIoCapabilityRuleTest {
      * {@code (group, name, version)} declared by the variant matching the given coord.
      * Capability coords are flattened to {@code group:name:version} strings for assertion.
      */
-    private java.util.Set<String> collectCapabilityCoords(String group, String artifact, String version) {
-        org.gradle.api.artifacts.Configuration cfg =
-            project.getConfigurations().getByName("compileClasspath");
-        java.util.Set<String> out = new java.util.LinkedHashSet<>();
+    private Set<String> collectCapabilityCoords(String group, String artifact, String version) {
+        Configuration cfg = project.getConfigurations().getByName("compileClasspath");
+        Set<String> out = new LinkedHashSet<>();
         cfg.getIncoming().getResolutionResult().allComponents(component -> {
-            org.gradle.api.artifacts.ModuleVersionIdentifier id = component.getModuleVersion();
+            ModuleVersionIdentifier id = component.getModuleVersion();
             if (id == null) return;
             if (!id.getGroup().equals(group) || !id.getName().equals(artifact) || !id.getVersion().equals(version)) {
                 return;
             }
-            component.getVariants().forEach(variant -> {
+            component.getVariants().forEach(variant ->
                 variant.getCapabilities().forEach(cap ->
-                    out.add(cap.getGroup() + ":" + cap.getName() + ":" + cap.getVersion()));
-            });
+                    out.add(cap.getGroup() + ":" + cap.getName() + ":" + cap.getVersion())));
         });
         return out;
     }
