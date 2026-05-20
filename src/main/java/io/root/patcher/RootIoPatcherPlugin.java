@@ -1,7 +1,6 @@
 package io.root.patcher;
 
 import org.gradle.api.Action;
-import org.gradle.api.GradleException;
 import org.gradle.api.Plugin;
 import org.gradle.api.Project;
 import org.gradle.api.artifacts.DependencyResolveDetails;
@@ -27,7 +26,6 @@ public class RootIoPatcherPlugin implements Plugin<Project> {
         extension.getMaxRetries().convention(3);
         extension.getRetryBaseDelayMs().convention(1000L);
         extension.getAllowInsecurePkgRepo().convention(false);
-        extension.getOnPatchConflict().convention(OnPatchConflict.PREFER_NEWEST);
         // apiKey resolved automatically from .env, systemProp, or env var
         // it will throw an exception if not set later on in afterEvaluate
         apiKeyResolver.resolve(project.getRootDir()).ifPresent(key -> extension.getApiKey().convention(key));
@@ -52,23 +50,15 @@ public class RootIoPatcherPlugin implements Plugin<Project> {
             config.getResolutionStrategy().eachDependency(details ->
                     handleDependency(project, details, extension));
 
-            // Capability conflict resolution — picks a winner when both the patched and
-            // unpatched siblings of an artifact end up in the graph claiming the same capability.
-            config.getResolutionStrategy().getCapabilitiesResolution().all(details -> {
-                OnPatchConflict policy = extension.getOnPatchConflict().get();
-                switch (policy) {
-                    case PREFER_NEWEST:
-                        details.selectHighestVersion();
-                        break;
-                    case FAIL:
-                        throw new GradleException(
-                            "Root.io: patched and upstream variants of " + details.getCapability()
-                                + " both resolved on " + config.getName()
-                                + "; set rootio { onPatchConflict.set(PREFER_NEWEST) } or override via dependencySubstitution.");
-                    default:
-                        throw new IllegalStateException("Unknown OnPatchConflict policy: " + policy);
-                }
-            });
+            // Capability conflict resolution — picks the highest-version candidate when both
+            // the patched and unpatched siblings of an artifact end up in the graph claiming
+            // the same capability. Capability versions are compared (not coord versions), so
+            // the patched coord's injected (originalGroup, artifact, originalVersion)
+            // competes against the upstream sibling's implicit default capability. Users
+            // who require a different winner in the rare same-version case can override via
+            // standard Gradle dependencySubstitution.
+            config.getResolutionStrategy().getCapabilitiesResolution().all(details ->
+                details.selectHighestVersion());
         });
     }
 
