@@ -16,7 +16,7 @@ import java.util.regex.Pattern;
  * <p>When the unpatched sibling {@code <G>:<A>:<Vmax>} also lands in the resolution
  * graph, both variants claim capability {@code <G>:<A>}; Gradle's capability conflict
  * detector fires and the plugin's per-configuration {@code capabilitiesResolution}
- * rule picks the winner per the configured {@link OnPatchConflict} policy.
+ * rule calls {@code selectHighestVersion()} so the upstream sibling wins.
  *
  * <p>{@link CacheableRule}-annotated so Gradle's metadata cache amortises the
  * mutation across builds.
