@@ -6,8 +6,6 @@ import org.gradle.api.Plugin;
 import org.gradle.api.Project;
 import org.gradle.api.artifacts.DependencyResolveDetails;
 import org.gradle.api.artifacts.ModuleVersionSelector;
-import org.gradle.api.artifacts.component.ComponentIdentifier;
-import org.gradle.api.artifacts.component.ModuleComponentIdentifier;
 import org.gradle.api.artifacts.repositories.PasswordCredentials;
 import org.gradle.api.logging.Logger;
 import org.gradle.api.logging.Logging;
@@ -59,17 +57,6 @@ public class RootIoPatcherPlugin implements Plugin<Project> {
             config.getResolutionStrategy().getCapabilitiesResolution().all(details -> {
                 OnPatchConflict policy = extension.getOnPatchConflict().get();
                 switch (policy) {
-                    case PREFER_PATCH:
-                        details.getCandidates().stream()
-                            .filter(c -> {
-                                ComponentIdentifier id = c.getId();
-                                return id instanceof ModuleComponentIdentifier
-                                    && ((ModuleComponentIdentifier) id).getGroup().startsWith(RootIoCapabilityRule.ROOT_IO_GROUP_PREFIX);
-                            })
-                            .findFirst()
-                            .ifPresent(patched ->
-                                details.select(patched).because("Root.io security patch (PREFER_PATCH)"));
-                        break;
                     case PREFER_NEWEST:
                         details.selectHighestVersion();
                         break;
@@ -77,7 +64,7 @@ public class RootIoPatcherPlugin implements Plugin<Project> {
                         throw new GradleException(
                             "Root.io: patched and upstream variants of " + details.getCapability()
                                 + " both resolved on " + config.getName()
-                                + "; set rootio { onPatchConflict.set(PREFER_PATCH | PREFER_NEWEST) } to choose.");
+                                + "; set rootio { onPatchConflict.set(PREFER_NEWEST) } or override via dependencySubstitution.");
                     default:
                         throw new IllegalStateException("Unknown OnPatchConflict policy: " + policy);
                 }

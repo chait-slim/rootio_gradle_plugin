@@ -13,30 +13,25 @@ public enum OnPatchConflict {
      * canonical BOM-upgrade case ({@code logback-core:1.1.3} transitively
      * patched alongside BOM-supplied {@code logback-core:1.5.x}), the BOM
      * version wins — the same outcome the user would have got without the
-     * plugin, preserving the API surface their application code expects.
+     * plugin's group rewrite, preserving the API surface their application
+     * code expects.
      *
-     * <p>Trade-off: in the rare same-version case (patched
-     * {@code 1.5.32-root.io.1} alongside clean {@code 1.5.32}), the
-     * comparison is a tie at the capability-version level — {@code 1.5.32}
-     * on both sides — and Gradle's tie-break may pick the clean sibling,
-     * silently dropping the patch. Users who require the patched code in
-     * all cases should explicitly set {@link #PREFER_PATCH}.
+     * <p>In the rare same-version case (patched {@code 1.5.32-root.io.1}
+     * alongside clean {@code 1.5.32}), capability versions tie at
+     * {@code 1.5.32} on both sides and Gradle's tie-break may pick either.
+     * Users who require the patched code to win in that case can override
+     * via standard Gradle dependency substitution:
+     *
+     * <pre>{@code
+     * configurations.all {
+     *     resolutionStrategy.dependencySubstitution {
+     *         substitute(module("ch.qos.logback:logback-core:1.5.32"))
+     *             .using(module("io.root.ch.qos.logback:logback-core:1.5.32-root.io.1"))
+     *     }
+     * }
+     * }</pre>
      */
     PREFER_NEWEST,
-
-    /**
-     * The {@code io.root.*} variant always wins. Guarantees the audited
-     * patched code runs even when a BOM supplies a numerically-newer clean
-     * version.
-     *
-     * <p>Trade-off: a patch from version {@code N} doesn't have APIs that
-     * appeared in later versions. If application code or transitives call a
-     * method that only exists in the BOM-supplied newer version, those calls
-     * will fail at runtime with {@code NoSuchMethodError}. Use this policy
-     * only when the security/audit posture genuinely requires the patched
-     * code to win and the API delta has been reviewed.
-     */
-    PREFER_PATCH,
 
     /**
      * Raise a {@link org.gradle.api.GradleException} listing the colliding

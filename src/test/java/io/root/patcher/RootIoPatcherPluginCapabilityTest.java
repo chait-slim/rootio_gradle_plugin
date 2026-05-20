@@ -107,25 +107,6 @@ class RootIoPatcherPluginCapabilityTest {
             "Default policy is PREFER_NEWEST: BOM-supplied 1.5.8 must win over patched 1.1.3.\n" + result.getOutput());
     }
 
-    // ===== F1: PREFER_PATCH — patched wins =====
-    @ParameterizedTest(name = "Gradle {0}")
-    @MethodSource("gradleVersions")
-    void f1_preferPatch_patchedWinsOverBomSibling(String gradleVersion) throws IOException {
-        bugReproRepo();
-        setupPatchOnly113();
-        writeBuildScript(gradleVersion, "PREFER_PATCH",
-            "implementation(\"org.example:host-lib:1.0\")\n" +
-            "    implementation(\"ch.qos.logback:logback-core:1.5.8\")");
-
-        BuildResult result = runListClasspath(gradleVersion);
-        List<String> logbackJars = jarsByPrefix(result, "logback-core-");
-
-        assertEquals(1, logbackJars.size(),
-            "Expected exactly one logback-core jar under PREFER_PATCH, got " + logbackJars + "\n" + result.getOutput());
-        assertTrue(logbackJars.get(0).startsWith("logback-core-1.1.3-root.io.1"),
-            "Expected patched jar to win, got " + logbackJars.get(0));
-    }
-
     // ===== F2: PREFER_NEWEST — BOM sibling wins =====
     @ParameterizedTest(name = "Gradle {0}")
     @MethodSource("gradleVersions")
@@ -183,7 +164,7 @@ class RootIoPatcherPluginCapabilityTest {
                 ? patchJson("org.example:vulnerable-lib", "1.0",
                     "io.root.org.example:vulnerable-lib", "1.0-root.io.1")
                 : emptyJson());
-        writeBuildScript(gradleVersion, "PREFER_PATCH",
+        writeBuildScript(gradleVersion, "PREFER_NEWEST",
             "implementation(\"org.example:vulnerable-lib:1.0\")");
 
         BuildResult result = runListClasspath(gradleVersion);
@@ -202,7 +183,7 @@ class RootIoPatcherPluginCapabilityTest {
         createFakeArtifact(repoDir, "io.root.ch.qos.logback", "logback-core", "1.1.3-root.io.1");
         createFakeArtifact(repoDir, "io.root.ch.qos.logback", "logback-core", "1.5.8-root.io.1");
         setupServerResponse(emptyJson()); // no patches needed; user declares io.root.* directly
-        writeBuildScript(gradleVersion, "PREFER_PATCH",
+        writeBuildScript(gradleVersion, "PREFER_NEWEST",
             "implementation(\"io.root.ch.qos.logback:logback-core:1.1.3-root.io.1\")\n" +
             "    implementation(\"io.root.ch.qos.logback:logback-core:1.5.8-root.io.1\")");
 
@@ -240,7 +221,7 @@ class RootIoPatcherPluginCapabilityTest {
             "    extensions.configure<io.root.patcher.RootIoExtension> {\n" +
             "        apiKey.set(\"k\")\n" +
             "        apiUrl.set(\"http://localhost:" + port + "\")\n" +
-            "        onPatchConflict.set(io.root.patcher.OnPatchConflict.PREFER_PATCH)\n" +
+            "        onPatchConflict.set(io.root.patcher.OnPatchConflict.PREFER_NEWEST)\n" +
             "    }\n" +
             "    tasks.register(\"listClasspath\") {\n" +
             "        doLast {\n" +
@@ -296,7 +277,7 @@ class RootIoPatcherPluginCapabilityTest {
             "rootio {\n" +
             "    apiKey.set(\"k\")\n" +
             "    apiUrl.set(\"http://localhost:" + port + "\")\n" +
-            "    onPatchConflict.set(io.root.patcher.OnPatchConflict.PREFER_PATCH)\n" +
+            "    onPatchConflict.set(io.root.patcher.OnPatchConflict.PREFER_NEWEST)\n" +
             "}\n");
 
         BuildResult lockRun = GradleRunner.create()
@@ -316,8 +297,12 @@ class RootIoPatcherPluginCapabilityTest {
         assertEquals(1L, logbackCoreLines,
             "Expected exactly one logback-core entry in lockfile, got:\n" + String.join("\n", lockLines));
         assertTrue(lockLines.stream().anyMatch(l ->
-                l.startsWith("io.root.ch.qos.logback:logback-core:1.1.3-root.io.1")),
-            "Expected patched coord to be the surviving lockfile entry under PREFER_PATCH:\n"
+                l.startsWith("ch.qos.logback:logback-core:1.5.8")),
+            "Expected BOM-supplied 1.5.8 to be the surviving lockfile entry under PREFER_NEWEST:\n"
+                + String.join("\n", lockLines));
+        assertFalse(lockLines.stream().anyMatch(l ->
+                l.startsWith("io.root.ch.qos.logback:logback-core:")),
+            "Expected NO io.root.* ghost entries under PREFER_NEWEST:\n"
                 + String.join("\n", lockLines));
     }
 
@@ -330,7 +315,7 @@ class RootIoPatcherPluginCapabilityTest {
         // Use the built-in `dependencies` task instead of the custom listClasspath here —
         // `dependencies` is configuration-cache safe by design; our custom task uses
         // Configuration.resolve() at execution time which is CC-hostile in 8.x+.
-        writeBuildScript(gradleVersion, "PREFER_PATCH",
+        writeBuildScript(gradleVersion, "PREFER_NEWEST",
             "implementation(\"org.example:host-lib:1.0\")\n" +
             "    implementation(\"ch.qos.logback:logback-core:1.5.8\")");
 
@@ -349,11 +334,11 @@ class RootIoPatcherPluginCapabilityTest {
             second.getOutput().contains("Configuration cache entry reused")
                 || second.getOutput().contains("Reusing configuration cache"),
             "Expected configuration-cache entry reuse on second build:\n" + second.getOutput());
-        // Both builds must show the patched coord winning in the dependency tree.
-        assertTrue(first.getOutput().contains("io.root.ch.qos.logback:logback-core:1.1.3-root.io.1"),
-            "First build must show the patched coord in `dependencies` output:\n" + first.getOutput());
-        assertTrue(second.getOutput().contains("io.root.ch.qos.logback:logback-core:1.1.3-root.io.1"),
-            "Second (cached) build must show the patched coord in `dependencies` output:\n" + second.getOutput());
+        // Both builds must show the BOM-supplied coord winning the capability conflict.
+        assertTrue(first.getOutput().contains("ch.qos.logback:logback-core:1.5.8"),
+            "First build must show BOM-supplied 1.5.8 in `dependencies` output:\n" + first.getOutput());
+        assertTrue(second.getOutput().contains("ch.qos.logback:logback-core:1.5.8"),
+            "Second (cached) build must show BOM-supplied 1.5.8 in `dependencies` output:\n" + second.getOutput());
     }
 
     // ===== F9: user-declared patched coord directly =====
@@ -364,7 +349,7 @@ class RootIoPatcherPluginCapabilityTest {
         createFakeArtifact(repoDir, "ch.qos.logback", "logback-core", "1.5.8");
         createFakeArtifact(repoDir, "io.root.ch.qos.logback", "logback-core", "1.1.3-root.io.1");
         setupServerResponse(emptyJson()); // no API substitution involved
-        writeBuildScript(gradleVersion, "PREFER_PATCH",
+        writeBuildScript(gradleVersion, "PREFER_NEWEST",
             "implementation(\"io.root.ch.qos.logback:logback-core:1.1.3-root.io.1\")\n" +
             "    implementation(\"ch.qos.logback:logback-core:1.5.8\")");
 
@@ -373,8 +358,12 @@ class RootIoPatcherPluginCapabilityTest {
         assertEquals(1, jars.size(),
             "Expected exactly one logback-core jar when user pins patched coord directly, got " + jars
                 + "\n" + result.getOutput());
-        assertTrue(jars.get(0).startsWith("logback-core-1.1.3-root.io.1"),
-            "Expected patched (PREFER_PATCH) jar to win, got " + jars.get(0));
+        // Capability conflict fires (user-pinned io.root.* vs implicit upstream sibling).
+        // Under PREFER_NEWEST the upstream 1.5.8 capability beats the patched alias's
+        // 1.1.3 capability. To force the user-pinned patched coord to win, override via
+        // standard Gradle dependencySubstitution (see OnPatchConflict.PREFER_NEWEST JavaDoc).
+        assertEquals("logback-core-1.5.8.jar", jars.get(0),
+            "Under PREFER_NEWEST default, upstream BOM coord wins capability conflict even when user pins the patched coord directly.");
     }
 
     // ===== F10: adversarial — io.root.* group, no -root.io.N suffix → no injection =====
@@ -384,7 +373,7 @@ class RootIoPatcherPluginCapabilityTest {
         File repoDir = new File(projectDir, "local-repo");
         createFakeArtifact(repoDir, "io.root.org.example", "custom-lib", "2.0.0");
         setupServerResponse(emptyJson());
-        writeBuildScript(gradleVersion, "PREFER_PATCH",
+        writeBuildScript(gradleVersion, "PREFER_NEWEST",
             "implementation(\"io.root.org.example:custom-lib:2.0.0\")");
 
         BuildResult result = runListClasspath(gradleVersion);
