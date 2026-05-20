@@ -29,7 +29,7 @@ public class RootIoPatcherPlugin implements Plugin<Project> {
         extension.getMaxRetries().convention(3);
         extension.getRetryBaseDelayMs().convention(1000L);
         extension.getAllowInsecurePkgRepo().convention(false);
-        extension.getOnPatchConflict().convention(OnPatchConflict.PREFER_PATCH);
+        extension.getOnPatchConflict().convention(OnPatchConflict.PREFER_NEWEST);
         // apiKey resolved automatically from .env, systemProp, or env var
         // it will throw an exception if not set later on in afterEvaluate
         apiKeyResolver.resolve(project.getRootDir()).ifPresent(key -> extension.getApiKey().convention(key));

@@ -72,6 +72,41 @@ class RootIoPatcherPluginCapabilityTest {
         return env;
     }
 
+    // ===== F0: default policy is PREFER_NEWEST =====
+    @ParameterizedTest(name = "Gradle {0}")
+    @MethodSource("gradleVersions")
+    void f0_defaultPolicy_isPreferNewest(String gradleVersion) throws IOException {
+        bugReproRepo();
+        setupPatchOnly113();
+        Files.writeString(new File(projectDir, "settings.gradle.kts").toPath(),
+            "rootProject.name = \"test-project\"\n");
+        // No onPatchConflict.set(...) — exercise the convention default.
+        Files.writeString(new File(projectDir, "build.gradle.kts").toPath(),
+            "plugins {\n    java\n    id(\"io.root.patcher\")\n}\n" +
+            "repositories { maven { url = uri(\"" + new File(projectDir, "local-repo").toURI() + "\") } }\n" +
+            "dependencies {\n" +
+            "    implementation(\"org.example:host-lib:1.0\")\n" +
+            "    implementation(\"ch.qos.logback:logback-core:1.5.8\")\n" +
+            "}\n" +
+            "rootio {\n" +
+            "    apiKey.set(\"k\")\n" +
+            "    apiUrl.set(\"http://localhost:" + port + "\")\n" +
+            "    // intentionally NO onPatchConflict.set(...) — verify convention default\n" +
+            "}\n" +
+            "tasks.register(\"listClasspath\") {\n" +
+            "    doLast {\n" +
+            "        configurations[\"compileClasspath\"].resolve().forEach { println(\"CP: \" + it.name) }\n" +
+            "    }\n" +
+            "}\n");
+
+        BuildResult result = runListClasspath(gradleVersion);
+        List<String> logbackJars = jarsByPrefix(result, "logback-core-");
+        assertEquals(1, logbackJars.size(),
+            "Default policy must still deduplicate, got " + logbackJars + "\n" + result.getOutput());
+        assertEquals("logback-core-1.5.8.jar", logbackJars.get(0),
+            "Default policy is PREFER_NEWEST: BOM-supplied 1.5.8 must win over patched 1.1.3.\n" + result.getOutput());
+    }
+
     // ===== F1: PREFER_PATCH — patched wins =====
     @ParameterizedTest(name = "Gradle {0}")
     @MethodSource("gradleVersions")
