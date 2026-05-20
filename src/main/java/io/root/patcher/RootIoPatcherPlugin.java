@@ -1,10 +1,13 @@
 package io.root.patcher;
 
 import org.gradle.api.Action;
+import org.gradle.api.GradleException;
 import org.gradle.api.Plugin;
 import org.gradle.api.Project;
 import org.gradle.api.artifacts.DependencyResolveDetails;
 import org.gradle.api.artifacts.ModuleVersionSelector;
+import org.gradle.api.artifacts.component.ComponentIdentifier;
+import org.gradle.api.artifacts.component.ModuleComponentIdentifier;
 import org.gradle.api.artifacts.repositories.PasswordCredentials;
 import org.gradle.api.logging.Logger;
 import org.gradle.api.logging.Logging;
@@ -26,11 +29,18 @@ public class RootIoPatcherPlugin implements Plugin<Project> {
         extension.getMaxRetries().convention(3);
         extension.getRetryBaseDelayMs().convention(1000L);
         extension.getAllowInsecurePkgRepo().convention(false);
+        extension.getOnPatchConflict().convention(OnPatchConflict.PREFER_PATCH);
         // apiKey resolved automatically from .env, systemProp, or env var
         // it will throw an exception if not set later on in afterEvaluate
         apiKeyResolver.resolve(project.getRootDir()).ifPresent(key -> extension.getApiKey().convention(key));
 
         project.afterEvaluate(p -> registerRootMavenRepo(p, extension));
+
+        // Capability injection — when Gradle resolves metadata for a Root.io-patched coord
+        // (io.root.<G>:<A>:<V>-root.io.N), declare the secondary capability (G, A, V) so
+        // unpatched siblings in the same graph trigger Gradle's capability conflict
+        // detector instead of co-existing on the classpath. See `RootIoCapabilityRule`.
+        project.getDependencies().getComponents().all(RootIoCapabilityRule.class);
 
         project.getConfigurations().all(config -> {
             // Only hook resolvable configurations — non-resolvable ones (e.g. `api`, `implementation`)
@@ -43,6 +53,35 @@ public class RootIoPatcherPlugin implements Plugin<Project> {
 
             config.getResolutionStrategy().eachDependency(details ->
                     handleDependency(project, details, extension));
+
+            // Capability conflict resolution — picks a winner when both the patched and
+            // unpatched siblings of an artifact end up in the graph claiming the same capability.
+            config.getResolutionStrategy().getCapabilitiesResolution().all(details -> {
+                OnPatchConflict policy = extension.getOnPatchConflict().get();
+                switch (policy) {
+                    case PREFER_PATCH:
+                        details.getCandidates().stream()
+                            .filter(c -> {
+                                ComponentIdentifier id = c.getId();
+                                return id instanceof ModuleComponentIdentifier
+                                    && ((ModuleComponentIdentifier) id).getGroup().startsWith(RootIoCapabilityRule.ROOT_IO_GROUP_PREFIX);
+                            })
+                            .findFirst()
+                            .ifPresent(patched ->
+                                details.select(patched).because("Root.io security patch (PREFER_PATCH)"));
+                        break;
+                    case PREFER_NEWEST:
+                        details.selectHighestVersion();
+                        break;
+                    case FAIL:
+                        throw new GradleException(
+                            "Root.io: patched and upstream variants of " + details.getCapability()
+                                + " both resolved on " + config.getName()
+                                + "; set rootio { onPatchConflict.set(PREFER_PATCH | PREFER_NEWEST) } to choose.");
+                    default:
+                        throw new IllegalStateException("Unknown OnPatchConflict policy: " + policy);
+                }
+            });
         });
     }
 

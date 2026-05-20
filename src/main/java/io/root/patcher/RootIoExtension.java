@@ -59,4 +59,11 @@ public abstract class RootIoExtension {
      * @return the property
      */
     public abstract Property<Boolean> getAllowInsecurePkgRepo();
+
+    /**
+     * Policy for resolving a capability collision between a Root.io-patched
+     * coord and its unpatched upstream sibling. Default: {@link OnPatchConflict#PREFER_PATCH}.
+     * @return the property
+     */
+    public abstract Property<OnPatchConflict> getOnPatchConflict();
 }
